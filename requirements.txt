@@ -1,0 +1,6 @@
+firecrawl-py
+python-dotenv
+fastapi
+uvicorn[standard]
+pytest
+httpx

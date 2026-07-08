@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Scraper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .spinning {
+      display: inline-block;
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-950 text-gray-100 min-h-screen p-6">
+  <div class="max-w-4xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Job Scraper</h1>
+        <p id="last-run" class="text-sm text-gray-500 mt-0.5"></p>
+      </div>
+      <button id="run-btn" onclick="runAgent()" class="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed
+             text-white font-semibold px-5 py-2 rounded-lg transition text-sm">
+        Run Agent
+      </button>
+    </div>
+
+    <!-- Progress Section -->
+    <div id="progress-section" class="hidden mb-5 bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-1.5">
+          <span id="s1-icon" class="text-gray-600">○</span>
+          <span id="s1-label" class="text-sm text-gray-500">Build Config</span>
+        </div>
+        <span class="text-gray-700">→</span>
+        <div class="flex items-center gap-1.5">
+          <span id="s2-icon" class="text-gray-600">○</span>
+          <span id="s2-label" class="text-sm text-gray-500">Scrape Jobs</span>
+        </div>
+        <span class="text-gray-700">→</span>
+        <div class="flex items-center gap-1.5">
+          <span id="s3-icon" class="text-gray-600">○</span>
+          <span id="s3-label" class="text-sm text-gray-500">Analyze</span>
+        </div>
+        <span class="text-gray-700">→</span>
+        <div class="flex items-center gap-1.5">
+          <span id="s4-icon" class="text-gray-600">○</span>
+          <span id="s4-label" class="text-sm text-gray-500">Cover Letters</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary Banner -->
+    <div id="summary-banner" class="hidden mb-5 bg-green-950 border border-green-800
+       rounded-xl p-3 text-green-300 text-sm"></div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="hidden mb-5 bg-red-950 border border-red-800
+       rounded-xl p-3 text-red-300 text-sm"></div>
+
+    <!-- Filter Bar -->
+    <div class="flex gap-3 mb-4 items-center">
+      <select id="filter-verdict" onchange="renderJobs()"
+        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+        <option value="all">All verdicts</option>
+        <option value="apply">Apply</option>
+        <option value="maybe">Maybe</option>
+        <option value="skip">Skip</option>
+      </select>
+      <select id="sort-by" onchange="renderJobs()"
+        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+        <option value="score-desc">Score: High → Low</option>
+        <option value="score-asc">Score: Low → High</option>
+        <option value="company-asc">Company: A → Z</option>
+      </select>
+      <span id="job-count" class="ml-auto text-xs text-gray-500"></span>
+    </div>
+
+    <!-- Jobs List -->
+    <div id="jobs-list"></div>
+
+    <!-- Cover Letter Modal -->
+    <div id="cl-modal" class="hidden fixed inset-0 bg-black/75 flex items-center
+       justify-center z-50 p-4" onclick="if(event.target===this)closeCL()">
+      <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full
+                max-w-2xl max-h-[80vh] flex flex-col">
+        <div class="flex justify-between items-center mb-4 shrink-0">
+          <h2 class="font-semibold">Cover Letter</h2>
+          <button onclick="closeCL()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+        <pre id="cl-content" class="whitespace-pre-wrap text-sm text-gray-300 font-mono
+                                  overflow-y-auto flex-1 leading-relaxed"></pre>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let allJobs = [];
+
+    /* ── utils ───────────────────────────────────────────── */
+    const esc = s => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    function scoreCls(score) {
+      if (score >= 80) return 'bg-green-800 text-green-100';
+      if (score >= 60) return 'bg-yellow-800 text-yellow-100';
+      return 'bg-red-900 text-red-200';
+    }
+
+    function verdictBorder(v) {
+      if (v === 'apply') return 'border-green-800';
+      if (v === 'maybe') return 'border-yellow-800';
+      return 'border-gray-800';
+    }
+
+    function statusCls(s) {
+      if (s === 'applied') return 'bg-green-700 hover:bg-green-600 text-white';
+      if (s === 'skipped') return 'bg-red-800 hover:bg-red-700 text-white';
+      return 'bg-gray-700 hover:bg-gray-600 text-gray-300';
+    }
+
+    function statusLabel(s) {
+      if (s === 'applied') return 'Applied ✓';
+      if (s === 'skipped') return 'Skipped';
+      return 'Mark Status';
+    }
+
+    function nextStatus(s) {
+      if (!s || s === 'none') return 'applied';
+      if (s === 'applied') return 'skipped';
+      return 'none';
+    }
+
+    function collapse(label, items) {
+      if (!items?.length) return '';
+      const lis = items.map(i => `<li>${esc(i)}</li>`).join('');
+      return `<details class="mt-2 group" open>
+      <summary class="text-xs uppercase tracking-wide text-gray-600
+                      cursor-pointer hover:text-gray-400 select-none">
+        ${esc(label)} (${items.length})
+      </summary>
+      <ul class="mt-1 ml-3 space-y-0.5 list-disc list-inside text-sm text-gray-400">${lis}</ul>
+    </details>`;
+    }
+
+    /* ── step progress ───────────────────────────────────── */
+    function setStep(n, state) {
+      const icon = document.getElementById(`s${n}-icon`);
+      const label = document.getElementById(`s${n}-label`);
+      if (state === 'running') {
+        icon.className = 'spinning text-blue-400';
+        icon.textContent = '↻';
+        label.className = 'text-sm text-blue-300 font-medium';
+      } else if (state === 'done') {
+        icon.className = 'text-green-400';
+        icon.textContent = '✓';
+        label.className = 'text-sm text-green-300';
+      } else if (state === 'error') {
+        icon.className = 'text-red-400';
+        icon.textContent = '✗';
+        label.className = 'text-sm text-red-400';
+      } else {
+        icon.className = 'text-gray-600';
+        icon.textContent = '○';
+        label.className = 'text-sm text-gray-500';
+      }
+    }
+
+    /* ── run agent ───────────────────────────────────────── */
+    function runAgent() {
+      const btn = document.getElementById('run-btn');
+      const prog = document.getElementById('progress-section');
+      const summary = document.getElementById('summary-banner');
+      const errBan = document.getElementById('error-banner');
+
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      prog.classList.remove('hidden');
+      summary.classList.add('hidden');
+      errBan.classList.add('hidden');
+      for (let i = 1; i <= 4; i++) setStep(i, 'pending');
+
+      const es = new EventSource('/api/run');
+
+      es.onmessage = ({ data }) => {
+        const ev = JSON.parse(data);
+
+        if (ev.step === 'busy') {
+          es.close(); reset(btn, prog);
+          showError('A run is already in progress.');
+          return;
+        }
+        if (ev.step === 'error') {
+          es.close(); reset(btn, prog);
+          for (let i = 1; i <= 4; i++) {
+            if (document.getElementById(`s${i}-icon`).textContent === '↻') setStep(i, 'error');
+          }
+          showError(`Pipeline error: ${ev.message}`);
+          return;
+        }
+        if (ev.step === 'complete') {
+          es.close(); reset(btn, prog);
+          const ts = new Date().toLocaleString();
+          localStorage.setItem('lastRun', ts);
+          document.getElementById('last-run').textContent = `Last run: ${ts}`;
+          summary.textContent =
+            `Run complete — found ${ev.total} jobs, ${ev.above_threshold} above threshold (score ≥ 70)`;
+          summary.classList.remove('hidden');
+          loadJobs();
+          return;
+        }
+        if (typeof ev.step === 'number') {
+          setStep(ev.step, ev.status === 'running' ? 'running' : 'done');
+        }
+      };
+
+      es.onerror = () => {
+        es.close(); reset(btn, prog);
+        showError('Connection lost. Is the server running?');
+      };
+    }
+
+    function reset(btn, prog) {
+      btn.disabled = false;
+      btn.textContent = 'Run Agent';
+      prog.classList.add('hidden');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-banner');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    /* ── jobs ────────────────────────────────────────────── */
+    async function loadJobs() {
+      try {
+        const res = await fetch('/api/jobs');
+        allJobs = await res.json();
+        renderJobs();
+      } catch (e) {
+        console.error('Failed to load jobs', e);
+      }
+    }
+
+    function renderJobs() {
+      const verdict = document.getElementById('filter-verdict').value;
+      const sort = document.getElementById('sort-by').value;
+
+      let jobs = allJobs.filter(j => verdict === 'all' || j.verdict === verdict);
+      if (sort === 'score-desc') jobs.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      else if (sort === 'score-asc') jobs.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+      else jobs.sort((a, b) => (a.company ?? '').localeCompare(b.company ?? ''));
+
+      document.getElementById('job-count').textContent =
+        `${jobs.length} job${jobs.length !== 1 ? 's' : ''}`;
+
+      if (!jobs.length) {
+        document.getElementById('jobs-list').innerHTML =
+          '<p class="text-gray-600 text-sm text-center py-12">No jobs to show. Run the agent or adjust filters.</p>';
+        return;
+      }
+
+      document.getElementById('jobs-list').innerHTML = jobs.map(job => `
+      <div class="bg-gray-900 border ${verdictBorder(job.verdict)} rounded-xl p-4 mb-3">
+        <div class="flex items-start gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+              <span class="text-xs font-bold px-2 py-0.5 rounded ${scoreCls(job.score)}">
+                ${esc(job.score ?? '?')}
+              </span>
+              <span class="text-xs uppercase tracking-wide text-gray-600">${esc(job.verdict ?? '')}</span>
+            </div>
+            <h3 class="font-semibold leading-snug">${esc(job.title ?? '')}</h3>
+            <p class="text-sm text-gray-500">
+              ${esc(job.company ?? '')}${job.location ? ' · ' + esc(job.location) : ''}
+            </p>
+          </div>
+        </div>
+        ${collapse('Match Reasons', job.match_reasons)}
+        ${collapse('Red Flags', job.red_flags)}
+        ${job.suggested_angle ? `
+          <details class="mt-2" open>
+            <summary class="text-xs uppercase tracking-wide text-gray-600
+                            cursor-pointer hover:text-gray-400 select-none">Suggested Angle</summary>
+            <p class="mt-1 text-sm text-gray-400">${esc(job.suggested_angle)}</p>
+          </details>` : ''}
+        <div class="flex gap-2 mt-3 flex-wrap">
+          <a href="${esc(job.url ?? '#')}" target="_blank" rel="noopener noreferrer"
+             class="text-sm bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg transition">
+            Open Job ↗
+          </a>
+          <button onclick="openCL('${esc(job.company ?? '')}','${esc(job.title ?? '')}')"
+            class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
+            Cover Letter
+          </button>
+          <button onclick="toggleStatus('${esc(job.url ?? '')}','${esc(job.status ?? 'none')}')"
+            class="text-sm px-3 py-1.5 rounded-lg transition ml-auto ${statusCls(job.status)}">
+            ${statusLabel(job.status)}
+          </button>
+        </div>
+      </div>`).join('');
+    }
+
+    async function toggleStatus(url, current) {
+      const next = nextStatus(current);
+      try {
+        const res = await fetch('/api/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, status: next })
+        });
+        if (!res.ok) throw new Error('server error');
+        const job = allJobs.find(j => j.url === url);
+        if (job) job.status = next;
+        renderJobs();
+      } catch {
+        showError('Failed to save status. Try again.');
+      }
+    }
+
+    /* ── cover letter modal ──────────────────────────────── */
+    async function openCL(company, title) {
+      const modal = document.getElementById('cl-modal');
+      const content = document.getElementById('cl-content');
+      content.textContent = 'Loading…';
+      modal.classList.remove('hidden');
+      try {
+        const res = await fetch(
+          `/api/cover-letter?company=${encodeURIComponent(company)}&title=${encodeURIComponent(title)}`
+        );
+        content.textContent = res.ok
+          ? (await res.json()).content
+          : 'No cover letter generated for this job.';
+      } catch {
+        content.textContent = 'Failed to load cover letter.';
+      }
+    }
+
+    function closeCL() {
+      document.getElementById('cl-modal').classList.add('hidden');
+    }
+
+    /* ── init ────────────────────────────────────────────── */
+    const saved = localStorage.getItem('lastRun');
+    if (saved) document.getElementById('last-run').textContent = `Last run: ${saved}`;
+    loadJobs();
+  </script>
+</body>
+
+</html>
