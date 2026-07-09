@@ -25,6 +25,36 @@ def test_discover_pages_interleaves_results_across_queries():
     ]
 
 
+def test_discover_pages_dedupes_regional_subdomains():
+    import agent
+    results = {
+        "q1": [SimpleNamespace(url="https://www.indeed.com/viewjob?jk=abc", title="", description="")],
+        "q2": [
+            SimpleNamespace(url="https://in.indeed.com/viewjob?jk=abc", title="", description=""),
+            SimpleNamespace(url="https://uk.linkedin.com/jobs/view/123", title="", description=""),
+        ],
+        "q3": [SimpleNamespace(url="https://www.linkedin.com/jobs/view/123", title="", description="")],
+    }
+    fake_app = SimpleNamespace(search=lambda q, limit: SimpleNamespace(web=results[q]))
+
+    pages = agent.discover_pages(fake_app, ["q1", "q2", "q3"])
+
+    assert [p["url"] for p in pages] == [
+        "https://www.indeed.com/viewjob?jk=abc",
+        "https://uk.linkedin.com/jobs/view/123",
+    ]
+
+
+def test_canonical_host_leaves_regular_domains_alone():
+    import agent
+    assert agent._canonical_host("www.indeed.com") == "indeed.com"
+    assert agent._canonical_host("ng.indeed.com") == "indeed.com"
+    assert agent._canonical_host("ph.jobstreet.com") == "jobstreet.com"
+    assert agent._canonical_host("onlinejobs.ph") == "onlinejobs.ph"
+    assert agent._canonical_host("glassdoor.co.uk") == "glassdoor.co.uk"
+    assert agent._canonical_host("reddit.com") == "reddit.com"
+
+
 def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
     import agent
     monkeypatch.chdir(tmp_path)

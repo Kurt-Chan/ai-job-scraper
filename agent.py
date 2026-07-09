@@ -67,6 +67,23 @@ def build_search_config() -> dict:
     print(f"  Queries ({len(config.get('search_queries', []))}): ready")
     return config
 
+# ── url canonicalization ──────────────────────────────────
+def _canonical_host(host: str) -> str:
+    """Collapse www. and two-letter regional prefixes (in.indeed.com,
+    uk.linkedin.com, ph.jobstreet.com) so one site isn't treated as many."""
+    host = host.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    labels = host.split(".")
+    if len(labels) >= 3 and len(labels[0]) == 2:
+        host = ".".join(labels[1:])
+    return host
+
+def _dedup_key(url: str) -> str:
+    """Key for URL deduplication: canonical host + path + query."""
+    p = urlparse(url)
+    return f"{_canonical_host(p.netloc)}{p.path}?{p.query}"
+
 # ── step 1a: discover candidate pages via search ─────────
 def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]:
     """Run each search query and return unique candidate pages.
@@ -88,9 +105,9 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
             response = app.search(query, limit=10)
             for r in response.web or []:
                 url = r.url
-                if not url or url in seen_urls:
+                if not url or _dedup_key(url) in seen_urls:
                     continue
-                seen_urls.add(url)
+                seen_urls.add(_dedup_key(url))
                 hits.append({
                     "url": url,
                     "title": r.title or "",
@@ -112,7 +129,7 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
     a result that was already an individual posting.
     """
     listing_url = page["url"]
-    source = urlparse(listing_url).netloc.replace("www.", "")
+    source = _canonical_host(urlparse(listing_url).netloc)
 
     def _snippet_fallback() -> list[dict]:
         return [{
@@ -172,9 +189,9 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
         print(f"  Scraping: {page['url'][:70]}...")
         for job in extract_postings(app, page):
             url = job["url"]
-            if not url or url in seen_urls:
+            if not url or _dedup_key(url) in seen_urls:
                 continue
-            seen_urls.add(url)
+            seen_urls.add(_dedup_key(url))
             jobs.append(job)
 
     return jobs
