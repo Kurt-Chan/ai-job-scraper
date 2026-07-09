@@ -1,7 +1,28 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
+
+
+def test_discover_pages_interleaves_results_across_queries():
+    import agent
+    results = {
+        "q1": [SimpleNamespace(url=f"https://a.com/{i}", title="", description="") for i in range(3)],
+        "q2": [SimpleNamespace(url=f"https://b.com/{i}", title="", description="") for i in range(2)],
+        "q3": [],
+    }
+    fake_app = SimpleNamespace(search=lambda q, limit: SimpleNamespace(web=results[q]))
+
+    pages = agent.discover_pages(fake_app, ["q1", "q2", "q3"])
+
+    assert [p["url"] for p in pages] == [
+        "https://a.com/0",
+        "https://b.com/0",
+        "https://a.com/1",
+        "https://b.com/1",
+        "https://a.com/2",
+    ]
 
 
 def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):

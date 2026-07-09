@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -72,12 +73,17 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
 
     A page may be a single posting OR a listing/category page that contains
     many postings — stage 1b sorts that out by scraping.
+
+    Results are interleaved round-robin across queries (first hit of each
+    query, then second of each, ...) so the MAX_PAGES_TO_SCRAPE cap doesn't
+    starve sources whose queries run later in the list.
     """
     seen_urls: set[str] = set()
-    pages: list[dict] = []
+    results_per_query: list[list[dict]] = []
 
     for query in search_queries:
         print(f"  Searching: {query[:70]}...")
+        hits: list[dict] = []
         try:
             response = app.search(query, limit=10)
             for r in response.web or []:
@@ -85,15 +91,17 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
                 if not url or url in seen_urls:
                     continue
                 seen_urls.add(url)
-                pages.append({
+                hits.append({
                     "url": url,
                     "title": r.title or "",
                     "description": r.description or "",
                 })
         except Exception as e:
             print(f"  Query failed: {e}")
+        print(f"    {len(hits)} new result(s)")
+        results_per_query.append(hits)
 
-    return pages
+    return [page for group in zip_longest(*results_per_query) for page in group if page]
 
 # ── step 1b: scrape each page and extract individual postings ─
 def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
