@@ -44,6 +44,8 @@ cp .env.example .env        # add your FIRECRAWL_API_KEY
 
 Then add your own `resume.md` in the project root (markdown resume — it is gitignored and never leaves your machine).
 
+Optionally edit `config.json` to change where the agent searches: `job_boards` is the list of sites to query (one search each), and `reddit_groups` are groups of subreddits (one grouped search each, with optional `extra_terms` added to the query). The defaults cover LinkedIn, Indeed, Wellfound, Glassdoor, JobStreet, OnlineJobs.ph, and a set of hiring subreddits.
+
 ## Run
 
 ```bash
@@ -66,6 +68,7 @@ pytest
 
 ```
 agent.py          # 4-step pipeline (search config → scrape → analyze → cover letters)
+config.json       # search sources: job boards + Reddit subreddit groups
 server.py         # FastAPI: /api/jobs, /api/status, /api/cover-letter, /api/run (SSE)
 ui/index.html     # single-file dashboard
 prompts/          # Claude prompt files for each AI step

@@ -120,6 +120,60 @@ def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
     assert result["above_threshold"] == 0
 
 
+def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    cfg = agent.load_config()
+    assert "linkedin.com/jobs" in cfg["job_boards"]
+    assert any(g["name"] == "Community/dev" for g in cfg["reddit_groups"])
+
+
+def test_load_config_overrides_from_file(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"job_boards": ["remoteok.com"]}))
+    cfg = agent.load_config()
+    assert cfg["job_boards"] == ["remoteok.com"]
+    assert cfg["reddit_groups"] == agent.DEFAULT_CONFIG["reddit_groups"]
+
+
+def test_sources_context_lists_boards_and_groups():
+    import agent
+    ctx = agent._sources_context({
+        "job_boards": ["remoteok.com", "weworkremotely.com"],
+        "reddit_groups": [
+            {"name": "Dev", "subreddits": ["webdev", "cscareers"], "extra_terms": "hiring"},
+            {"name": "Gigs", "subreddits": ["freelance"]},
+        ],
+    })
+    assert "- remoteok.com" in ctx
+    assert "- weworkremotely.com" in ctx
+    assert "Dev: r/webdev, r/cscareers" in ctx
+    assert '"hiring"' in ctx
+    assert "Gigs: r/freelance" in ctx
+
+
+def test_run_claude_raises_when_cli_missing(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "prompt.md").write_text("hello")
+    with patch.object(agent.shutil, "which", return_value=None):
+        with pytest.raises(RuntimeError, match="claude CLI not found"):
+            agent.run_claude("prompt.md")
+
+
+def test_run_claude_uses_resolved_executable(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "prompt.md").write_text("hello")
+    fake_result = SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+    with patch.object(agent.shutil, "which", return_value="/usr/local/bin/claude"), \
+         patch.object(agent.subprocess, "run", return_value=fake_result) as mock_run:
+        out = agent.run_claude("prompt.md")
+    assert out == "ok"
+    assert mock_run.call_args[0][0][0] == "/usr/local/bin/claude"
+
+
 def test_analyze_jobs_writes_jobs_json(tmp_path, monkeypatch):
     import agent
     monkeypatch.chdir(tmp_path)

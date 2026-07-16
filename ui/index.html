@@ -74,7 +74,7 @@
         class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
         <option value="all">All verdicts</option>
         <option value="apply">Apply</option>
-        <option value="maybe">Maybe</option>
+        <option value="review">Review</option>
         <option value="skip">Skip</option>
       </select>
       <select id="sort-by" onchange="renderJobs()"
@@ -121,7 +121,7 @@
 
     function verdictBorder(v) {
       if (v === 'apply') return 'border-green-800';
-      if (v === 'maybe') return 'border-yellow-800';
+      if (v === 'review') return 'border-yellow-800';
       return 'border-gray-800';
     }
 

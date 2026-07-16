@@ -1,0 +1,19 @@
+{
+  "job_boards": [
+    "linkedin.com/jobs",
+    "indeed.com",
+    "wellfound.com",
+    "glassdoor.com",
+    "jobstreet.com",
+    "onlinejobs.ph"
+  ],
+  "reddit_groups": [
+    { "name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"] },
+    { "name": "Freelance/gig", "subreddits": ["freelance", "Upwork"] },
+    {
+      "name": "Community/dev",
+      "subreddits": ["webdev", "digitalnomad", "remotework"],
+      "extra_terms": "hiring"
+    }
+  ]
+}

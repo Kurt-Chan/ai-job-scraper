@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime
 from itertools import zip_longest
@@ -16,6 +17,29 @@ load_dotenv()
 # ── config ──────────────────────────────────────────────
 THRESHOLD = 70
 RESUME_FILE = "resume.md"
+CONFIG_FILE = "config.json"
+
+# Where to search. config.json (same shape) overrides these defaults, so the
+# job boards and subreddits can be tailored without editing code or prompts.
+DEFAULT_CONFIG = {
+    "job_boards": [
+        "linkedin.com/jobs",
+        "indeed.com",
+        "wellfound.com",
+        "glassdoor.com",
+        "jobstreet.com",
+        "onlinejobs.ph",
+    ],
+    "reddit_groups": [
+        {"name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"]},
+        {"name": "Freelance/gig", "subreddits": ["freelance", "Upwork"]},
+        {
+            "name": "Community/dev",
+            "subreddits": ["webdev", "digitalnomad", "remotework"],
+            "extra_terms": "hiring",
+        },
+    ],
+}
 
 # Stage 2 (scrape) limits — a search hit is often a listing/category page
 # (e.g. ph.jobstreet.com/nextjs-jobs) that contains many postings. We scrape
@@ -57,10 +81,37 @@ JOB_EXTRACT_SCHEMA = {
     "required": ["jobs"],
 }
 
+# ── search sources config ─────────────────────────────────
+def load_config() -> dict:
+    """Return the search-sources config: DEFAULT_CONFIG overridden by any
+    top-level keys present in config.json."""
+    cfg = dict(DEFAULT_CONFIG)
+    path = Path(CONFIG_FILE)
+    if path.exists():
+        cfg.update(json.loads(path.read_text(encoding="utf-8")))
+    return cfg
+
+def _sources_context(cfg: dict) -> str:
+    """Render the configured job boards and subreddit groups as prompt context
+    for prompts/build_queries.md."""
+    boards = "\n".join(f"- {b}" for b in cfg.get("job_boards", []))
+    groups = []
+    for g in cfg.get("reddit_groups", []):
+        line = f"- {g['name']}: " + ", ".join(f"r/{s}" for s in g.get("subreddits", []))
+        if g.get("extra_terms"):
+            line += f' (also include the term "{g["extra_terms"]}" in the query)'
+        groups.append(line)
+    return (
+        "\nJob boards to cover (one query each):\n"
+        + boards
+        + "\n\nReddit subreddit groups (one grouped query each):\n"
+        + "\n".join(groups)
+    )
+
 # ── step 0: build search config from resume ───────────────
 def build_search_config() -> dict:
     """Ask Claude to extract search config from the resume."""
-    config = run_claude_json("prompts/build_queries.md")
+    config = run_claude_json("prompts/build_queries.md", context=_sources_context(load_config()))
     Path("output/search_config.json").write_text(json.dumps(config, indent=2))
     print(f"  Roles: {config.get('target_roles')}")
     print(f"  Skills: {config.get('key_skills')}")
@@ -206,8 +257,15 @@ def run_claude(prompt_file: str, context: str = "") -> str:
     prompt = Path(prompt_file).read_text(encoding="utf-8")
     if context:
         prompt = prompt + "\n" + context
+    # Resolve the executable so Windows finds the claude.cmd/claude.exe shim.
+    claude_exe = shutil.which("claude")
+    if not claude_exe:
+        raise RuntimeError(
+            "claude CLI not found on PATH — install Claude Code and make sure "
+            "`claude` runs from a terminal."
+        )
     result = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "text", "--allowedTools", "Read"],
+        [claude_exe, "-p", prompt, "--output-format", "text", "--allowedTools", "Read"],
         capture_output=True,
         text=True,
         encoding="utf-8",
