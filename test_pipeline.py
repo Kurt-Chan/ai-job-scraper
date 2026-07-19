@@ -120,6 +120,19 @@ def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
     assert result["above_threshold"] == 0
 
 
+def test_run_claude_json_strips_markdown_fences():
+    import agent
+    fenced = '```json\n{"target_roles": ["Virtual Assistant"]}\n```'
+    with patch.object(agent, "run_claude", return_value=fenced):
+        assert agent.run_claude_json("prompts/x.md") == {"target_roles": ["Virtual Assistant"]}
+
+
+def test_run_claude_json_passes_plain_json_through():
+    import agent
+    with patch.object(agent, "run_claude", return_value='[{"score": 88}]'):
+        assert agent.run_claude_json("prompts/x.md") == [{"score": 88}]
+
+
 def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
     import agent
     monkeypatch.chdir(tmp_path)

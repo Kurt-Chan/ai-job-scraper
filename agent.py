@@ -281,6 +281,10 @@ def run_claude_json(prompt_file: str, context: str = ""):
     raw = run_claude(prompt_file, context)
     if not raw:
         raise RuntimeError(f"Claude returned empty output for {prompt_file}")
+    # Claude occasionally wraps output in ```json fences despite instructions.
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-zA-Z]*\s*\n", "", raw)
+        raw = re.sub(r"\n```\s*$", "", raw)
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
