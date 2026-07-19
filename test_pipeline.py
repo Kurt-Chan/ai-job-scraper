@@ -125,7 +125,7 @@ def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = agent.load_config()
     assert "linkedin.com/jobs" in cfg["job_boards"]
-    assert any(g["name"] == "Community/dev" for g in cfg["reddit_groups"])
+    assert any(g["name"] == "Community" for g in cfg["reddit_groups"])
 
 
 def test_load_config_overrides_from_file(tmp_path, monkeypatch):

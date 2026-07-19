@@ -34,8 +34,8 @@ DEFAULT_CONFIG = {
         {"name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"]},
         {"name": "Freelance/gig", "subreddits": ["freelance", "Upwork"]},
         {
-            "name": "Community/dev",
-            "subreddits": ["webdev", "digitalnomad", "remotework"],
+            "name": "Community",
+            "subreddits": ["forhire", "digitalnomad", "remotework"],
             "extra_terms": "hiring",
         },
     ],

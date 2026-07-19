@@ -1,15 +1,15 @@
-Read resume.md to understand the candidate's full profile — skills, experience, seniority, and preferences.
+Read resume.md to understand the candidate's full profile — profession, skills, experience, seniority, location, and preferences. The candidate can be in any profession; judge every job against what the resume actually shows.
 Then read output/raw_jobs.json.
 
 For each job, score it 0–100 based on how well it matches THIS specific candidate:
 
 Scoring factors:
-- Stack match: award high points if the job requires skills the candidate has (Next.js, React, TypeScript, Convex, Tailwind, etc.)
-- Seniority fit: the candidate has ~3 years of experience — weight mid-level or "senior" roles favorably, avoid pure junior or staff/principal
-- Remote-first signals: explicit "remote" in title or description, async culture mentioned, global/Philippines-friendly timezone
-- Company stage: startups and mid-size preferred; deprioritize large enterprise
+- Skills match: award high points if the job requires skills, tools, or services the candidate's resume demonstrates
+- Seniority fit: infer the candidate's level from their years of experience and role history in the resume; weight roles at or slightly above that level favorably, avoid roles far below or far above it
+- Remote-first signals: explicit "remote" in title or description, async culture mentioned, timezone compatible with the candidate's location (from the resume)
 - Posting freshness: award points if the job was posted within the last 30 days (use today's date provided at the end of this prompt) and the role is still open; penalize or skip listings that are expired, closed, or posted more than 30 days ago
-- Red flags: requires physical presence, Java/.NET-only stack, no TypeScript, US/EU citizens only, posting is closed or older than 30 days
+- Preferences: honor any preferences stated in the resume (industries, company types or sizes, tools or stacks to avoid)
+- Red flags: requires physical presence or relocation, citizenship or work-authorization restrictions the candidate doesn't meet, core requirements entirely outside the candidate's skill set, posting is closed or older than 30 days
 
 Include only jobs with score >= 60.
 
