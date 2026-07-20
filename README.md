@@ -1,5 +1,7 @@
 # AI Job Hunt Agent
 
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20project-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/kurtdeaustria)
+
 An autonomous job-hunting pipeline. It reads your resume, searches the web for matching remote roles, scores each posting against your actual profile with Claude, and drafts a tailored cover letter for every job worth applying to — all reviewable in a local web dashboard.
 
 It works for **any profession** — developer, designer, virtual assistant, writer, accountant, marketer. Everything (target roles, search queries, scoring, cover letters) is derived from your `resume.md`; nothing about your field is hardcoded.
@@ -78,3 +80,11 @@ CLAUDE.md         # agent context (target roles, preferences, output contract)
 test_pipeline.py  # pipeline unit tests (Claude/Firecrawl mocked)
 test_server.py    # API tests
 ```
+
+## Support
+
+I built this while job hunting as a broke developer — it runs on a Claude Code subscription and Firecrawl's free tier precisely because I couldn't justify another bill. If it helped you land interviews (or saved you a few hours of job-board scrolling), consider buying me a coffee:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kurtdeaustria)
+
+Stars, issues, and PRs are just as appreciated. ☕
