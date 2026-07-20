@@ -28,8 +28,8 @@ DEFAULT_CONFIG = {
         "indeed.com",
         "wellfound.com",
         "glassdoor.com",
-        "jobstreet.com",
-        "onlinejobs.ph",
+        "remoteok.com",
+        "weworkremotely.com",
     ],
     "reddit_groups": [
         {"name": "Job boards", "subreddits": ["jobbit", "remotejobs", "WorkOnline"]},

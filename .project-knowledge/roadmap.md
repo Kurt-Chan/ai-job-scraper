@@ -5,7 +5,7 @@
 
 ## Current Goal
 
-Push the current state (Exa fallback, role/preference selection UI, waiting game, README + project-knowledge updates) to https://github.com/YahyaZekry/ai-job-scraper (existing repo, default branch `clean`).
+Verify the job-board/scoring location fix (see history.md) with a fresh real run, then push. Previously pushed commits (b49b673, 5a0abb5) predate this fix.
 
 ---
 

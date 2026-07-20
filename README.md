@@ -63,7 +63,7 @@ cp .env.example .env        # add your FIRECRAWL_API_KEY (and optionally EXA_API
 
 Then add your own `resume.md` in the project root (markdown resume — it is gitignored and never leaves your machine).
 
-Optionally edit `config.json` to change where the agent searches: `job_boards` is the list of sites to query (one search each), and `reddit_groups` are groups of subreddits (one grouped search each, with optional `extra_terms` added to the query). The defaults cover LinkedIn, Indeed, Wellfound, Glassdoor, JobStreet, OnlineJobs.ph, and a set of profession-neutral hiring subreddits — if your field has dedicated boards or subreddits (e.g. Dribbble for designers, r/VirtualAssistant for VAs), add them here.
+Optionally edit `config.json` to change where the agent searches: `job_boards` is the list of sites to query (one search each), and `reddit_groups` are groups of subreddits (one grouped search each, with optional `extra_terms` added to the query). The defaults cover LinkedIn, Indeed, Wellfound, Glassdoor, RemoteOK, We Work Remotely, and a set of profession-neutral hiring subreddits — all globally remote-first, no region-specific boards baked in. If your field or region has dedicated boards or subreddits (e.g. Dribbble for designers, JobStreet/OnlineJobs.ph for Southeast Asia, r/VirtualAssistant for VAs), add them here. Note that `job_boards` are queried every run regardless of the dashboard's location preferences — a board tied to a specific region will keep surfacing results from that region no matter what you type in Search Setup, since the preferences only change the query wording, not which sites get searched.
 
 ## Run
 
