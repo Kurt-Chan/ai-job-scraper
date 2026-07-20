@@ -8,8 +8,8 @@ Scoring factors:
 - Seniority fit: infer the candidate's level from their years of experience and role history in the resume; weight roles at or slightly above that level favorably, avoid roles far below or far above it
 - Remote-first signals: explicit "remote" in title or description, async culture mentioned, timezone compatible with the candidate's location (from the resume)
 - Posting freshness: award points if the job was posted within the last 30 days (use today's date provided at the end of this prompt) and the role is still open; penalize or skip listings that are expired, closed, or posted more than 30 days ago
-- Preferences: honor any preferences stated in the resume (industries, company types or sizes, tools or stacks to avoid)
-- Red flags: requires physical presence or relocation, citizenship or work-authorization restrictions the candidate doesn't meet, core requirements entirely outside the candidate's skill set, posting is closed or older than 30 days
+- Preferences: honor any preferences stated in the resume (industries, company types or sizes, tools or stacks to avoid), AND any run preferences given at the end of this prompt (e.g. target location/country, desired pay currency or rate, employment type such as full-time/part-time/contract/hourly) — score down or skip jobs that clearly conflict with them
+- Red flags: requires physical presence or relocation, citizenship or work-authorization restrictions the candidate doesn't meet, core requirements entirely outside the candidate's skill set, posting is closed or older than 30 days, or conflicts with stated run preferences (e.g. full-time only when the candidate wants part-time/hourly)
 
 Include only jobs with score >= 60.
 

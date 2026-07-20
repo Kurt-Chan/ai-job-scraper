@@ -1,4 +1,5 @@
 firecrawl-py
+exa-py
 python-dotenv
 fastapi
 uvicorn[standard]

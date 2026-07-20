@@ -3,5 +3,6 @@ output/
 __pycache__/
 .pytest_cache/
 .claude/
+.venv/
 resume.md
 *.pdf

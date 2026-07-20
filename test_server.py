@@ -81,3 +81,63 @@ def test_cover_letter_found(client, tmp_path):
 def test_cover_letter_not_found(client):
     res = client.get("/api/cover-letter?company=Nobody&title=Nothing")
     assert res.status_code == 404
+
+
+def test_resume_roles_returns_400_when_resume_missing(client):
+    res = client.get("/api/resume-roles")
+    assert res.status_code == 400
+
+
+def test_resume_roles_returns_target_roles_and_skills(client, tmp_path, monkeypatch):
+    (tmp_path / "resume.md").write_text("# Resume")
+    import agent
+    monkeypatch.setattr(agent, "analyze_resume", lambda: {"target_roles": ["Dev"], "key_skills": ["Python"]})
+    res = client.get("/api/resume-roles")
+    assert res.status_code == 200
+    assert res.json() == {"target_roles": ["Dev"], "key_skills": ["Python"]}
+
+
+def test_resume_roles_returns_500_on_claude_failure(client, tmp_path, monkeypatch):
+    (tmp_path / "resume.md").write_text("# Resume")
+    import agent
+
+    def boom():
+        raise RuntimeError("Claude returned invalid JSON")
+
+    monkeypatch.setattr(agent, "analyze_resume", boom)
+    res = client.get("/api/resume-roles")
+    assert res.status_code == 500
+
+
+def test_run_passes_roles_skills_and_preferences_to_pipeline(client, monkeypatch):
+    import agent
+    captured = {}
+
+    def fake_run_pipeline(on_progress=None, resume_info=None, preferences=""):
+        captured["resume_info"] = resume_info
+        captured["preferences"] = preferences
+        return {"total": 0, "above_threshold": 0}
+
+    monkeypatch.setattr(agent, "run_pipeline", fake_run_pipeline)
+    res = client.get("/api/run", params=[
+        ("roles", "Frontend Developer"), ("skills", "React"), ("preferences", "Egypt, USD"),
+    ])
+
+    assert res.status_code == 200
+    assert captured["resume_info"] == {"target_roles": ["Frontend Developer"], "key_skills": ["React"]}
+    assert captured["preferences"] == "Egypt, USD"
+
+
+def test_run_uses_auto_detected_roles_when_none_given(client, monkeypatch):
+    import agent
+    captured = {}
+
+    def fake_run_pipeline(on_progress=None, resume_info=None, preferences=""):
+        captured["resume_info"] = resume_info
+        return {"total": 0, "above_threshold": 0}
+
+    monkeypatch.setattr(agent, "run_pipeline", fake_run_pipeline)
+    res = client.get("/api/run")
+
+    assert res.status_code == 200
+    assert captured["resume_info"] is None

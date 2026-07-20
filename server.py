@@ -72,12 +72,29 @@ async def get_cover_letter(company: str = Query(...), title: str = Query(...)):
     return {"content": path.read_text(encoding="utf-8")}
 
 
+@app.get("/api/resume-roles")
+async def get_resume_roles():
+    from agent import RESUME_FILE, analyze_resume
+    if not Path(RESUME_FILE).exists():
+        raise HTTPException(status_code=400, detail=f"Missing {RESUME_FILE} — add your resume before running.")
+    try:
+        return analyze_resume()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/run")
-async def run_agent():
+async def run_agent(
+    roles: list[str] = Query(default=[]),
+    skills: list[str] = Query(default=[]),
+    preferences: str = "",
+):
     if not run_lock.acquire(blocking=False):
         async def _busy():
             yield f"data: {json.dumps({'step': 'busy'})}\n\n"
         return StreamingResponse(_busy(), media_type="text/event-stream")
+
+    resume_info = {"target_roles": roles, "key_skills": skills} if roles else None
 
     q: queue.Queue = queue.Queue()
 
@@ -87,7 +104,7 @@ async def run_agent():
     def _pipeline_thread() -> None:
         try:
             from agent import run_pipeline
-            result = run_pipeline(on_progress=_on_progress)
+            result = run_pipeline(on_progress=_on_progress, resume_info=resume_info, preferences=preferences)
             q.put({"step": "complete", **result})
         except Exception as exc:
             q.put({"step": "error", "message": str(exc)})

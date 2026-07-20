@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlparse
 
 from dotenv import load_dotenv
 from firecrawl import FirecrawlApp
+from exa_py import Exa
 
 load_dotenv()
 
@@ -108,13 +109,30 @@ def _sources_context(cfg: dict) -> str:
         + "\n".join(groups)
     )
 
-# ── step 0: build search config from resume ───────────────
-def build_search_config() -> dict:
-    """Ask Claude to extract search config from the resume."""
-    config = run_claude_json("prompts/build_queries.md", context=_sources_context(load_config()))
+# ── step 0a: extract target roles + key skills from resume ─
+def analyze_resume() -> dict:
+    """Ask Claude for the candidate's target roles and key skills, so the UI
+    can offer them for selection before queries are built."""
+    return run_claude_json("prompts/analyze_resume.md")
+
+# ── step 0b: build search queries for the selected roles ──
+def build_search_config(target_roles: list[str], key_skills: list[str], preferences: str = "") -> dict:
+    """Ask Claude to build search queries for the given roles/skills, folding
+    in optional free-text run preferences (location, pay, employment type)."""
+    context = (
+        f"\nSelected target roles: {', '.join(target_roles)}"
+        f"\nKey skills: {', '.join(key_skills)}\n"
+    )
+    if preferences:
+        context += f"\nRun preferences: {preferences}\n"
+    context += _sources_context(load_config())
+
+    config = run_claude_json("prompts/build_queries.md", context=context)
+    config["target_roles"] = target_roles
+    config["key_skills"] = key_skills
     Path("output/search_config.json").write_text(json.dumps(config, indent=2))
-    print(f"  Roles: {config.get('target_roles')}")
-    print(f"  Skills: {config.get('key_skills')}")
+    print(f"  Roles: {target_roles}")
+    print(f"  Skills: {key_skills}")
     print(f"  Queries ({len(config.get('search_queries', []))}): ready")
     return config
 
@@ -172,12 +190,43 @@ def discover_pages(app: "FirecrawlApp", search_queries: list[str]) -> list[dict]
     return [page for group in zip_longest(*results_per_query) for page in group if page]
 
 # ── step 1b: scrape each page and extract individual postings ─
-def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
+def _normalize_postings(raw_postings: list, listing_url: str, source: str) -> list[dict]:
+    """Turn raw {title, company, location, url, posted_date, description} dicts
+    (from either Firecrawl or Exa) into our posting shape."""
+    postings: list[dict] = []
+    for p in raw_postings:
+        if not isinstance(p, dict) or not (p.get("title") or "").strip():
+            continue
+        # Resolve the posting URL relative to the page; fall back to the page URL.
+        posting_url = (p.get("url") or "").strip()
+        posting_url = urljoin(listing_url, posting_url) if posting_url else listing_url
+        postings.append({
+            "title": p.get("title", "").strip(),
+            "company": (p.get("company") or "").strip(),
+            "location": (p.get("location") or "Remote").strip() or "Remote",
+            "url": posting_url,
+            "description": (p.get("description") or "").strip(),
+            "posted_date": (p.get("posted_date") or "").strip(),
+            "source": source,
+        })
+    return postings
+
+def _extract_via_exa(exa: "Exa", listing_url: str) -> list[dict]:
+    """Fallback extraction for pages Firecrawl can't scrape (e.g. LinkedIn, Reddit
+    respond 'Website Not Supported'). Exa can still fetch and extract these."""
+    result = exa.get_contents([listing_url], summary={"query": EXTRACT_PROMPT, "schema": JOB_EXTRACT_SCHEMA})
+    if not result.results:
+        return []
+    summary = result.results[0].summary
+    data = json.loads(summary) if isinstance(summary, str) else (summary or {})
+    return data.get("jobs") or []
+
+def extract_postings(app: "FirecrawlApp", exa: "Exa | None", page: dict) -> list[dict]:
     """Scrape one page and extract the individual job postings it contains.
 
-    Falls back to the search snippet (treated as a single posting) if the
-    scrape fails or the page yields no structured postings, so we never lose
-    a result that was already an individual posting.
+    Falls back to Exa (if configured) when Firecrawl can't scrape the page,
+    and finally to the search snippet (treated as a single posting) so we
+    never lose a result that was already an individual posting.
     """
     listing_url = page["url"]
     source = _canonical_host(urlparse(listing_url).netloc)
@@ -200,36 +249,28 @@ def extract_postings(app: "FirecrawlApp", page: dict) -> list[dict]:
             only_main_content=True,
             timeout=SCRAPE_TIMEOUT_MS,
         )
+        data = doc.json if isinstance(doc.json, dict) else {}
+        raw_postings = data.get("jobs") or []
     except Exception as e:
-        print(f"    Scrape failed ({source}): {e} — keeping search snippet")
-        return _snippet_fallback()
+        print(f"    Scrape failed ({source}): {e}")
+        raw_postings = []
 
-    data = doc.json if isinstance(doc.json, dict) else {}
-    raw_postings = data.get("jobs") or []
+    if not raw_postings and exa:
+        try:
+            print(f"    Retrying via Exa ({source})...")
+            raw_postings = _extract_via_exa(exa, listing_url)
+        except Exception as e:
+            print(f"    Exa fallback failed ({source}): {e}")
+
     if not raw_postings:
         return _snippet_fallback()
 
-    postings: list[dict] = []
-    for p in raw_postings:
-        if not isinstance(p, dict) or not (p.get("title") or "").strip():
-            continue
-        # Resolve the posting URL relative to the page; fall back to the page URL.
-        posting_url = (p.get("url") or "").strip()
-        posting_url = urljoin(listing_url, posting_url) if posting_url else listing_url
-        postings.append({
-            "title": p.get("title", "").strip(),
-            "company": (p.get("company") or "").strip(),
-            "location": (p.get("location") or "Remote").strip() or "Remote",
-            "url": posting_url,
-            "description": (p.get("description") or "").strip(),
-            "posted_date": (p.get("posted_date") or "").strip(),
-            "source": source,
-        })
-    return postings or _snippet_fallback()
+    return _normalize_postings(raw_postings, listing_url, source) or _snippet_fallback()
 
 # ── step 1: search → scrape → individual postings ─────────
 def scrape_jobs(search_queries: list[str]) -> list[dict]:
     app = FirecrawlApp(api_key=os.environ["FIRECRAWL_API_KEY"])
+    exa = Exa(os.environ["EXA_API_KEY"]) if os.environ.get("EXA_API_KEY") else None
 
     pages = discover_pages(app, search_queries)
     print(f"  Discovered {len(pages)} candidate pages; scraping up to {MAX_PAGES_TO_SCRAPE}...")
@@ -238,7 +279,7 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
     jobs: list[dict] = []
     for page in pages[:MAX_PAGES_TO_SCRAPE]:
         print(f"  Scraping: {page['url'][:70]}...")
-        for job in extract_postings(app, page):
+        for job in extract_postings(app, exa, page):
             url = job["url"]
             if not url or _dedup_key(url) in seen_urls:
                 continue
@@ -264,13 +305,19 @@ def run_claude(prompt_file: str, context: str = "") -> str:
             "claude CLI not found on PATH — install Claude Code and make sure "
             "`claude` runs from a terminal."
         )
-    result = subprocess.run(
-        [claude_exe, "-p", prompt, "--output-format", "text", "--allowedTools", "Read"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=".",
-    )
+    try:
+        result = subprocess.run(
+            [claude_exe, "-p", prompt, "--output-format", "text", "--allowedTools", "Read"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=".",
+        )
+    except OSError as e:
+        raise RuntimeError(
+            f"claude CLI found at {claude_exe} but failed to run ({e}). Its native binary may "
+            "be missing — try reinstalling Claude Code or running its postinstall script."
+        )
     if result.returncode != 0:
         print(f"Claude error: {result.stderr}")
         raise RuntimeError("Claude subprocess failed")
@@ -308,10 +355,13 @@ def run_claude_json(prompt_file: str, context: str = ""):
         raise RuntimeError(f"Claude returned invalid JSON for {prompt_file}: {e}\n---\n{raw[:300]}")
 
 # ── step 2: analyze scraped jobs via Claude ───────────────
-def analyze_jobs() -> list[dict]:
+def analyze_jobs(preferences: str = "") -> list[dict]:
     """Run Claude analysis on raw_jobs.json and write output/jobs.json."""
     today = datetime.now().strftime("%Y-%m-%d")
-    all_jobs = run_claude_json("prompts/analyze.md", context=f"Today's date is {today}.")
+    context = f"Today's date is {today}."
+    if preferences:
+        context += f" Run preferences: {preferences}"
+    all_jobs = run_claude_json("prompts/analyze.md", context=context)
     Path("output/jobs.json").write_text(json.dumps(all_jobs, indent=2))
     return all_jobs
 
@@ -337,8 +387,16 @@ def generate_cover_letters(jobs: list[dict]):
             print(f"  Failed for {slug}: {e}")
 
 # ── pipeline orchestrator ──────────────────────────────────
-def run_pipeline(on_progress=None) -> dict:
+def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences: str = "") -> dict:
     """Run the full 4-step pipeline.
+
+    resume_info, if given, is {"target_roles": [...], "key_skills": [...]} —
+    typically the (possibly user-edited) result of a prior analyze_resume()
+    call, letting the caller choose which roles to search for. If omitted,
+    all roles/skills are auto-detected from the resume.
+
+    preferences is optional free-text run preferences (location, pay,
+    employment type) folded into both the search queries and the scoring.
 
     Calls on_progress(step, label, status) at each stage where:
       step   — int 1-4
@@ -358,7 +416,9 @@ def run_pipeline(on_progress=None) -> dict:
         raise RuntimeError(f"Missing {RESUME_FILE} — add your resume before running.")
 
     emit(1, "Building search config", "running")
-    config = build_search_config()
+    if resume_info is None:
+        resume_info = analyze_resume()
+    config = build_search_config(resume_info["target_roles"], resume_info["key_skills"], preferences)
     search_queries = config.get("search_queries", [])
     if not search_queries:
         raise RuntimeError("No search queries generated — check prompts/build_queries.md")
@@ -372,7 +432,7 @@ def run_pipeline(on_progress=None) -> dict:
     emit(2, "Scraping jobs", "done")
 
     emit(3, "Analyzing & scoring", "running")
-    all_jobs = analyze_jobs()
+    all_jobs = analyze_jobs(preferences)
     emit(3, "Analyzing & scoring", "done")
 
     emit(4, "Generating cover letters", "running")
