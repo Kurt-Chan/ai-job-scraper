@@ -29,10 +29,41 @@
         <h1 class="text-2xl font-bold tracking-tight">Job Scraper</h1>
         <p id="last-run" class="text-sm text-gray-500 mt-0.5"></p>
       </div>
-      <button id="run-btn" onclick="runAgent()" class="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed
+      <button id="run-btn" onclick="analyzeResume()" class="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed
              text-white font-semibold px-5 py-2 rounded-lg transition text-sm">
-        Run Agent
+        Find Roles
       </button>
+    </div>
+
+    <!-- Search Setup -->
+    <div id="setup-section" class="hidden mb-5 bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <h2 class="text-sm font-semibold text-gray-300 mb-3">Which roles should this search cover?</h2>
+      <div id="roles-list" class="flex flex-wrap gap-2 mb-4"></div>
+
+      <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Employment type</label>
+      <div id="employment-list" class="flex flex-wrap gap-2 mb-4"></div>
+
+      <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Pay / currency</label>
+      <div id="currency-list" class="flex flex-wrap gap-2 mb-4"></div>
+
+      <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Location</label>
+      <div class="flex flex-wrap gap-2 items-center mb-1">
+        <div id="location-list" class="flex flex-wrap gap-2"></div>
+        <input id="location-input" type="text" placeholder="Or type a specific country/region, e.g. Egypt"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200
+                placeholder-gray-600 flex-1 min-w-[220px]">
+      </div>
+
+      <div class="flex gap-2 mt-3">
+        <button id="start-search-btn" onclick="startSearch()"
+          class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition text-sm">
+          Start Search
+        </button>
+        <button onclick="cancelSetup()"
+          class="text-gray-400 hover:text-gray-200 px-4 py-2 rounded-lg transition text-sm">
+          Cancel
+        </button>
+      </div>
     </div>
 
     <!-- Progress Section -->
@@ -58,6 +89,8 @@
           <span id="s4-label" class="text-sm text-gray-500">Cover Letters</span>
         </div>
       </div>
+      <canvas id="game-canvas" height="140" class="w-full mt-3 rounded-lg bg-gray-950 border border-gray-800"></canvas>
+      <p class="text-xs text-gray-600 mt-1 text-center">Dodge the red flags while your agent searches — Space or tap to jump</p>
     </div>
 
     <!-- Summary Banner -->
@@ -68,26 +101,33 @@
     <div id="error-banner" class="hidden mb-5 bg-red-950 border border-red-800
        rounded-xl p-3 text-red-300 text-sm"></div>
 
-    <!-- Filter Bar -->
-    <div class="flex gap-3 mb-4 items-center">
-      <select id="filter-verdict" onchange="renderJobs()"
-        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
-        <option value="all">All verdicts</option>
-        <option value="apply">Apply</option>
-        <option value="review">Review</option>
-        <option value="skip">Skip</option>
-      </select>
-      <select id="sort-by" onchange="renderJobs()"
-        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
-        <option value="score-desc">Score: High → Low</option>
-        <option value="score-asc">Score: Low → High</option>
-        <option value="company-asc">Company: A → Z</option>
-      </select>
-      <span id="job-count" class="ml-auto text-xs text-gray-500"></span>
-    </div>
+    <!-- Results -->
+    <div id="results-section">
+      <!-- Filter Bar -->
+      <div class="flex gap-3 mb-4 items-center">
+        <select id="filter-verdict" onchange="renderJobs()"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+          <option value="all">All verdicts</option>
+          <option value="apply">Apply</option>
+          <option value="review">Review</option>
+          <option value="skip">Skip</option>
+        </select>
+        <select id="sort-by" onchange="renderJobs()"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+          <option value="score-desc">Score: High → Low</option>
+          <option value="score-asc">Score: Low → High</option>
+          <option value="company-asc">Company: A → Z</option>
+        </select>
+        <div class="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+          <button id="view-list-btn" onclick="setView('list')" class="text-sm px-2 py-1 rounded-md transition">List</button>
+          <button id="view-grid-btn" onclick="setView('grid')" class="text-sm px-2 py-1 rounded-md transition">Grid</button>
+        </div>
+        <span id="job-count" class="ml-auto text-xs text-gray-500"></span>
+      </div>
 
-    <!-- Jobs List -->
-    <div id="jobs-list"></div>
+      <!-- Jobs List -->
+      <div id="jobs-list"></div>
+    </div>
 
     <!-- Cover Letter Modal -->
     <div id="cl-modal" class="hidden fixed inset-0 bg-black/75 flex items-center
@@ -107,6 +147,23 @@
 
   <script>
     let allJobs = [];
+    let viewMode = localStorage.getItem('viewMode') || 'list';
+
+    function setView(mode) {
+      viewMode = mode;
+      localStorage.setItem('viewMode', mode);
+      updateViewButtons();
+      renderJobs();
+    }
+
+    function updateViewButtons() {
+      const active = 'bg-gray-700 text-white';
+      const inactive = 'text-gray-400 hover:text-gray-200';
+      document.getElementById('view-list-btn').className =
+        `text-sm px-2 py-1 rounded-md transition ${viewMode === 'list' ? active : inactive}`;
+      document.getElementById('view-grid-btn').className =
+        `text-sm px-2 py-1 rounded-md transition ${viewMode === 'grid' ? active : inactive}`;
+    }
 
     /* ── utils ───────────────────────────────────────────── */
     const esc = s => String(s ?? '')
@@ -117,6 +174,11 @@
       if (score >= 80) return 'bg-green-800 text-green-100';
       if (score >= 60) return 'bg-yellow-800 text-yellow-100';
       return 'bg-red-900 text-red-200';
+    }
+
+    function sourceLabel(url) {
+      try { return new URL(url).hostname.replace(/^www\./, ''); }
+      catch { return ''; }
     }
 
     function verdictBorder(v) {
@@ -178,8 +240,189 @@
       }
     }
 
+    /* ── search setup ────────────────────────────────────── */
+    let resumeInfo = null;
+    const EMPLOYMENT_OPTIONS = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Hourly'];
+    const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'Local currency'];
+    const LOCATION_OPTIONS = ['Worldwide Remote'];
+
+    function chip(value, checked) {
+      return `<label class="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm cursor-pointer">
+        <input type="checkbox" value="${esc(value)}" ${checked ? 'checked' : ''} class="accent-blue-600">
+        ${esc(value)}
+      </label>`;
+    }
+
+    function renderChips(containerId, options, selected) {
+      document.getElementById(containerId).innerHTML =
+        options.map(opt => chip(opt, selected.includes(opt))).join('');
+    }
+
+    function checkedValues(containerId) {
+      return [...document.querySelectorAll(`#${containerId} input:checked`)].map(el => el.value);
+    }
+
+    async function analyzeResume() {
+      const btn = document.getElementById('run-btn');
+      btn.disabled = true;
+      btn.textContent = 'Finding roles…';
+      document.getElementById('error-banner').classList.add('hidden');
+      try {
+        const res = await fetch('/api/resume-roles');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to analyze resume.');
+        resumeInfo = data;
+        renderSetup();
+      } catch (e) {
+        showError(e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Find Roles';
+      }
+    }
+
+    function renderSetup() {
+      document.getElementById('roles-list').innerHTML =
+        resumeInfo.target_roles.map(role => chip(role, true)).join('');
+
+      renderChips('employment-list', EMPLOYMENT_OPTIONS, JSON.parse(localStorage.getItem('prefEmployment') || '[]'));
+      renderChips('currency-list', CURRENCY_OPTIONS, JSON.parse(localStorage.getItem('prefCurrency') || '[]'));
+      renderChips('location-list', LOCATION_OPTIONS, JSON.parse(localStorage.getItem('prefLocationChips') || '[]'));
+      document.getElementById('location-input').value = localStorage.getItem('prefLocationText') || '';
+
+      document.getElementById('results-section').classList.add('hidden');
+      document.getElementById('setup-section').classList.remove('hidden');
+    }
+
+    function cancelSetup() {
+      document.getElementById('setup-section').classList.add('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+    }
+
+    function buildPreferences() {
+      const employment = checkedValues('employment-list');
+      const currency = checkedValues('currency-list');
+      const locationChips = checkedValues('location-list');
+      const locationText = document.getElementById('location-input').value.trim();
+
+      localStorage.setItem('prefEmployment', JSON.stringify(employment));
+      localStorage.setItem('prefCurrency', JSON.stringify(currency));
+      localStorage.setItem('prefLocationChips', JSON.stringify(locationChips));
+      localStorage.setItem('prefLocationText', locationText);
+
+      const locations = [...locationChips, ...(locationText ? [locationText] : [])];
+      const parts = [];
+      if (locations.length) parts.push(locations.join(' or '));
+      if (employment.length) parts.push(employment.join(' or ') + ' work');
+      if (currency.length) parts.push('paid in ' + currency.join(' or '));
+      return parts.join(', ');
+    }
+
+    function startSearch() {
+      const selectedRoles = [...document.querySelectorAll('#roles-list input:checked')].map(el => el.value);
+      if (!selectedRoles.length) { showError('Select at least one role to search for.'); return; }
+      const preferences = buildPreferences();
+      document.getElementById('setup-section').classList.add('hidden');
+      runAgent(selectedRoles, resumeInfo.key_skills, preferences);
+    }
+
+    /* ── waiting game: dodge the red flags ─────────────────── */
+    let game = null;
+
+    function startGame() {
+      const canvas = document.getElementById('game-canvas');
+      canvas.width = canvas.clientWidth;
+      const GROUND_Y = canvas.height - 20;
+      const GRAVITY = 0.6;
+      const JUMP_VELOCITY = -11;
+      const PLAYER_X = 40;
+
+      const state = {
+        canvas, ctx: canvas.getContext('2d'), GROUND_Y,
+        playerY: GROUND_Y, playerVY: 0, jumping: false,
+        obstacles: [], speed: 4, score: 0, frame: 0, over: false,
+        best: Number(localStorage.getItem('gameHighScore') || 0),
+        raf: null,
+      };
+      game = state;
+
+      function jump() {
+        if (state.over) { Object.assign(state, { playerY: GROUND_Y, playerVY: 0, jumping: false, obstacles: [], speed: 4, score: 0, frame: 0, over: false }); return; }
+        if (!state.jumping) { state.playerVY = JUMP_VELOCITY; state.jumping = true; }
+      }
+
+      state.onKey = e => { if (e.code === 'Space') { e.preventDefault(); jump(); } };
+      state.onTap = () => jump();
+      document.addEventListener('keydown', state.onKey);
+      canvas.addEventListener('pointerdown', state.onTap);
+
+      function loop() {
+        state.frame++;
+        if (!state.over) {
+          state.playerVY += GRAVITY;
+          state.playerY += state.playerVY;
+          if (state.playerY >= GROUND_Y) { state.playerY = GROUND_Y; state.playerVY = 0; state.jumping = false; }
+
+          if (state.frame % Math.max(35, 70 - Math.floor(state.score / 5)) === 0) {
+            state.obstacles.push({ x: canvas.width, w: 22 });
+          }
+          state.obstacles.forEach(o => o.x -= state.speed);
+          state.obstacles = state.obstacles.filter(o => o.x > -30);
+
+          state.score += 0.1;
+          state.speed = 4 + Math.min(state.score / 40, 5);
+
+          const p = { x: PLAYER_X - 14, y: state.playerY - 28, w: 28, h: 28 };
+          for (const o of state.obstacles) {
+            const b = { x: o.x, y: GROUND_Y - 24, w: o.w, h: 24 };
+            if (p.x < b.x + b.w && p.x + p.w > b.x && p.y < b.y + b.h && p.y + p.h > b.y) {
+              state.over = true;
+              state.best = Math.max(state.best, Math.floor(state.score));
+              localStorage.setItem('gameHighScore', state.best);
+            }
+          }
+        }
+
+        drawGame(state);
+        state.raf = requestAnimationFrame(loop);
+      }
+      loop();
+    }
+
+    function drawGame(state) {
+      const { ctx, canvas, GROUND_Y } = state;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#374151';
+      ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(canvas.width, GROUND_Y); ctx.stroke();
+
+      ctx.font = '28px sans-serif';
+      ctx.fillText('🤖', 40 - 14, state.playerY);
+      state.obstacles.forEach(o => ctx.fillText('🚩', o.x, GROUND_Y));
+
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(`Score: ${Math.floor(state.score)}   Best: ${state.best}`, canvas.width - 150, 16);
+
+      if (state.over) {
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over — Space or tap to retry', canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = 'left';
+      }
+    }
+
+    function stopGame() {
+      if (!game) return;
+      cancelAnimationFrame(game.raf);
+      document.removeEventListener('keydown', game.onKey);
+      game.canvas.removeEventListener('pointerdown', game.onTap);
+      game = null;
+    }
+
     /* ── run agent ───────────────────────────────────────── */
-    function runAgent() {
+    function runAgent(roles, skills, preferences) {
       const btn = document.getElementById('run-btn');
       const prog = document.getElementById('progress-section');
       const summary = document.getElementById('summary-banner');
@@ -191,8 +434,14 @@
       summary.classList.add('hidden');
       errBan.classList.add('hidden');
       for (let i = 1; i <= 4; i++) setStep(i, 'pending');
+      startGame();
 
-      const es = new EventSource('/api/run');
+      const params = new URLSearchParams();
+      roles.forEach(r => params.append('roles', r));
+      (skills || []).forEach(s => params.append('skills', s));
+      if (preferences) params.set('preferences', preferences);
+
+      const es = new EventSource(`/api/run?${params.toString()}`);
 
       es.onmessage = ({ data }) => {
         const ev = JSON.parse(data);
@@ -234,8 +483,10 @@
 
     function reset(btn, prog) {
       btn.disabled = false;
-      btn.textContent = 'Run Agent';
+      btn.textContent = 'Find Roles';
       prog.classList.add('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+      stopGame();
     }
 
     function showError(msg) {
@@ -267,14 +518,19 @@
       document.getElementById('job-count').textContent =
         `${jobs.length} job${jobs.length !== 1 ? 's' : ''}`;
 
+      const container = document.getElementById('jobs-list');
+      container.className = viewMode === 'grid'
+        ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3'
+        : 'flex flex-col gap-3';
+
       if (!jobs.length) {
-        document.getElementById('jobs-list').innerHTML =
+        container.innerHTML =
           '<p class="text-gray-600 text-sm text-center py-12">No jobs to show. Run the agent or adjust filters.</p>';
         return;
       }
 
-      document.getElementById('jobs-list').innerHTML = jobs.map(job => `
-      <div class="bg-gray-900 border ${verdictBorder(job.verdict)} rounded-xl p-4 mb-3">
+      container.innerHTML = jobs.map(job => `
+      <div class="bg-gray-900 border ${verdictBorder(job.verdict)} rounded-xl p-4 flex flex-col">
         <div class="flex items-start gap-3">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
@@ -288,6 +544,7 @@
               ${esc(job.company ?? '')}${job.location ? ' · ' + esc(job.location) : ''}
             </p>
           </div>
+          <span class="text-xs text-gray-500 whitespace-nowrap shrink-0">${esc(sourceLabel(job.url))}</span>
         </div>
         ${collapse('Match Reasons', job.match_reasons)}
         ${collapse('Red Flags', job.red_flags)}
@@ -297,17 +554,19 @@
                             cursor-pointer hover:text-gray-400 select-none">Suggested Angle</summary>
             <p class="mt-1 text-sm text-gray-400">${esc(job.suggested_angle)}</p>
           </details>` : ''}
-        <div class="flex gap-2 mt-3 flex-wrap">
-          <a href="${esc(job.url ?? '#')}" target="_blank" rel="noopener noreferrer"
-             class="text-sm bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg transition">
-            Open Job ↗
-          </a>
-          <button onclick="openCL('${esc(job.company ?? '')}','${esc(job.title ?? '')}')"
-            class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
-            Cover Letter
-          </button>
+        <div class="pt-3 mt-auto">
+          <div class="flex gap-2 flex-wrap">
+            <a href="${esc(job.url ?? '#')}" target="_blank" rel="noopener noreferrer"
+               class="text-sm bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg transition">
+              Open Job ↗
+            </a>
+            <button onclick="openCL('${esc(job.company ?? '')}','${esc(job.title ?? '')}')"
+              class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
+              Cover Letter
+            </button>
+          </div>
           <button onclick="toggleStatus('${esc(job.url ?? '')}','${esc(job.status ?? 'none')}')"
-            class="text-sm px-3 py-1.5 rounded-lg transition ml-auto ${statusCls(job.status)}">
+            class="w-full text-sm px-3 py-1.5 rounded-lg transition mt-2 ${statusCls(job.status)}">
             ${statusLabel(job.status)}
           </button>
         </div>
@@ -356,6 +615,7 @@
     /* ── init ────────────────────────────────────────────── */
     const saved = localStorage.getItem('lastRun');
     if (saved) document.getElementById('last-run').textContent = `Last run: ${saved}`;
+    updateViewButtons();
     loadJobs();
   </script>
 </body>
