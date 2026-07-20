@@ -43,15 +43,26 @@
       <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Employment type</label>
       <div id="employment-list" class="flex flex-wrap gap-2 mb-4"></div>
 
-      <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Pay / currency</label>
-      <div id="currency-list" class="flex flex-wrap gap-2 mb-4"></div>
-
       <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Location</label>
-      <div class="flex flex-wrap gap-2 items-center mb-1">
-        <div id="location-list" class="flex flex-wrap gap-2"></div>
+      <div class="flex flex-wrap gap-2 items-center mb-4">
+        <label class="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm cursor-pointer">
+          <input id="worldwide-checkbox" type="checkbox" class="accent-blue-600" onchange="onWorldwideToggle()">
+          Worldwide Remote
+        </label>
         <input id="location-input" type="text" placeholder="Or type a specific country/region, e.g. Egypt"
+          oninput="updateLocationDependentUI()"
           class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200
                 placeholder-gray-600 flex-1 min-w-[220px]">
+      </div>
+
+      <label class="block text-xs uppercase tracking-wide text-gray-600 mb-1">Pay / currency</label>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <div id="currency-list" class="flex flex-wrap gap-2"></div>
+        <label id="local-currency-chip" class="flex items-center gap-1.5 bg-gray-800 border border-gray-700
+                                               rounded-lg px-2.5 py-1.5 text-sm cursor-not-allowed opacity-50 transition">
+          <input id="local-currency-checkbox" type="checkbox" disabled class="accent-blue-600">
+          <span id="local-currency-label">Local currency</span>
+        </label>
       </div>
 
       <div class="flex gap-2 mt-3">
@@ -243,8 +254,7 @@
     /* ── search setup ────────────────────────────────────── */
     let resumeInfo = null;
     const EMPLOYMENT_OPTIONS = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Hourly'];
-    const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'Local currency'];
-    const LOCATION_OPTIONS = ['Worldwide Remote'];
+    const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP'];
 
     function chip(value, checked) {
       return `<label class="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm cursor-pointer">
@@ -281,14 +291,42 @@
       }
     }
 
+    function updateLocationDependentUI() {
+      const country = document.getElementById('location-input').value.trim();
+      const worldwideBox = document.getElementById('worldwide-checkbox');
+      const localBox = document.getElementById('local-currency-checkbox');
+      const localChip = document.getElementById('local-currency-chip');
+
+      worldwideBox.disabled = !!country;
+      if (country) worldwideBox.checked = false;
+
+      localBox.disabled = !country;
+      if (!country) localBox.checked = false;
+      localChip.classList.toggle('cursor-not-allowed', !country);
+      localChip.classList.toggle('opacity-50', !country);
+      document.getElementById('local-currency-label').textContent =
+        country ? `Local currency (${country})` : 'Local currency';
+    }
+
+    function onWorldwideToggle() {
+      if (document.getElementById('worldwide-checkbox').checked) {
+        document.getElementById('location-input').value = '';
+        updateLocationDependentUI();
+      }
+    }
+
     function renderSetup() {
       document.getElementById('roles-list').innerHTML =
         resumeInfo.target_roles.map(role => chip(role, true)).join('');
 
       renderChips('employment-list', EMPLOYMENT_OPTIONS, JSON.parse(localStorage.getItem('prefEmployment') || '[]'));
       renderChips('currency-list', CURRENCY_OPTIONS, JSON.parse(localStorage.getItem('prefCurrency') || '[]'));
-      renderChips('location-list', LOCATION_OPTIONS, JSON.parse(localStorage.getItem('prefLocationChips') || '[]'));
+
       document.getElementById('location-input').value = localStorage.getItem('prefLocationText') || '';
+      document.getElementById('worldwide-checkbox').checked = localStorage.getItem('prefWorldwide') === 'true';
+      updateLocationDependentUI();
+      document.getElementById('local-currency-checkbox').checked =
+        localStorage.getItem('prefLocalCurrency') === 'true' && !!document.getElementById('location-input').value;
 
       document.getElementById('results-section').classList.add('hidden');
       document.getElementById('setup-section').classList.remove('hidden');
@@ -302,19 +340,27 @@
     function buildPreferences() {
       const employment = checkedValues('employment-list');
       const currency = checkedValues('currency-list');
-      const locationChips = checkedValues('location-list');
       const locationText = document.getElementById('location-input').value.trim();
+      const worldwide = document.getElementById('worldwide-checkbox').checked;
+      const localCurrency = document.getElementById('local-currency-checkbox').checked;
 
       localStorage.setItem('prefEmployment', JSON.stringify(employment));
       localStorage.setItem('prefCurrency', JSON.stringify(currency));
-      localStorage.setItem('prefLocationChips', JSON.stringify(locationChips));
       localStorage.setItem('prefLocationText', locationText);
+      localStorage.setItem('prefWorldwide', worldwide);
+      localStorage.setItem('prefLocalCurrency', localCurrency);
 
-      const locations = [...locationChips, ...(locationText ? [locationText] : [])];
+      const locations = [];
+      if (worldwide) locations.push('Worldwide Remote');
+      if (locationText) locations.push(locationText);
+
+      const currencies = [...currency];
+      if (localCurrency && locationText) currencies.push(`Local currency (${locationText})`);
+
       const parts = [];
       if (locations.length) parts.push(locations.join(' or '));
       if (employment.length) parts.push(employment.join(' or ') + ' work');
-      if (currency.length) parts.push('paid in ' + currency.join(' or '));
+      if (currencies.length) parts.push('paid in ' + currencies.join(' or '));
       return parts.join(', ');
     }
 
