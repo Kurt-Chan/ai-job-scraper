@@ -276,17 +276,34 @@ def run_claude(prompt_file: str, context: str = "") -> str:
         raise RuntimeError("Claude subprocess failed")
     return result.stdout.strip()
 
-def run_claude_json(prompt_file: str, context: str = ""):
-    """Run a Claude prompt that must return JSON, and parse it."""
-    raw = run_claude(prompt_file, context)
-    if not raw:
-        raise RuntimeError(f"Claude returned empty output for {prompt_file}")
-    # Claude occasionally wraps output in ```json fences despite instructions.
+def _parse_json_output(raw: str):
+    """Parse Claude's output as JSON, tolerating markdown fences and prose
+    around the JSON payload (Claude sometimes adds them despite instructions)."""
     if raw.startswith("```"):
         raw = re.sub(r"^```[a-zA-Z]*\s*\n", "", raw)
         raw = re.sub(r"\n```\s*$", "", raw)
     try:
         return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    # Fall back to the first parseable JSON value embedded in the text.
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(raw):
+        if ch in "[{":
+            try:
+                value, _ = decoder.raw_decode(raw, i)
+                return value
+            except json.JSONDecodeError:
+                continue
+    raise json.JSONDecodeError("no JSON value found in output", raw, 0)
+
+def run_claude_json(prompt_file: str, context: str = ""):
+    """Run a Claude prompt that must return JSON, and parse it."""
+    raw = run_claude(prompt_file, context)
+    if not raw:
+        raise RuntimeError(f"Claude returned empty output for {prompt_file}")
+    try:
+        return _parse_json_output(raw)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Claude returned invalid JSON for {prompt_file}: {e}\n---\n{raw[:300]}")
 

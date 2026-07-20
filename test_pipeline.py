@@ -133,6 +133,24 @@ def test_run_claude_json_passes_plain_json_through():
         assert agent.run_claude_json("prompts/x.md") == [{"score": 88}]
 
 
+def test_run_claude_json_extracts_json_from_surrounding_prose():
+    import agent
+    chatty = (
+        "I don't have write permission for `output/jobs.json`. Per the task "
+        'instructions, here is the raw JSON array:\n\n[{"title": "Support Rep", '
+        '"score": 72}]\n\nLet me know if you need anything else.'
+    )
+    with patch.object(agent, "run_claude", return_value=chatty):
+        assert agent.run_claude_json("prompts/x.md") == [{"title": "Support Rep", "score": 72}]
+
+
+def test_run_claude_json_still_fails_loudly_on_no_json():
+    import agent
+    with patch.object(agent, "run_claude", return_value="Sorry, I cannot do that."):
+        with pytest.raises(RuntimeError, match="invalid JSON"):
+            agent.run_claude_json("prompts/x.md")
+
+
 def test_load_config_returns_defaults_without_file(tmp_path, monkeypatch):
     import agent
     monkeypatch.chdir(tmp_path)

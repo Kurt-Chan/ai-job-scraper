@@ -9,4 +9,4 @@ Derive everything from the resume: target roles, key skills, search queries, sco
 - Tailor every query, score, and cover letter to THIS candidate's resume
 
 ## Output format
-Always write results to output/jobs.json as a JSON array.
+When a prompt asks for JSON, respond with ONLY the raw JSON — no markdown fences, no commentary, no preamble. Never try to write files yourself: the pipeline code parses your stdout and writes the output files (like output/jobs.json) itself.
