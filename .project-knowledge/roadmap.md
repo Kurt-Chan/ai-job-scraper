@@ -11,6 +11,9 @@ All five pipeline stages plus the apply stage have now run end to end on real sc
 
 ## Known Bugs
 
+- [ ] **The best-matching source can vanish between runs.** Discovery returns 73–168+ candidate pages but `MAX_PAGES_TO_SCRAPE = 20` caps scraping, and which 20 survive depends on search-result ordering that shifts run to run. Run 1 (2026-08-16) scraped 4 `community.n8n.io` postings including a real n8n hiring post that scores 88 for this resume — the single best match found all session. Run 2, same queries, scraped **zero** of them. The round-robin interleave spreads across queries but the Reddit/community queries sit last in the list, so their hits are the first cut. *(found: 2026-08-16)*
+- [ ] **One employer can flood a run.** Run 2's 168 postings included 30 from `opentrain.ai` and 19 from `dynamitejobs.com` — a single career page yielding dozens of near-identical roles. Five of the ten `apply`-verdict jobs were OpenTrain. Nothing caps postings per company or per domain, so a listing-heavy site crowds out everything else downstream. *(found: 2026-08-16)*
+
 - [ ] Local `claude` CLI install repeatedly reverts to a broken stub (native binary missing) — happened ~4x in one session on this machine (`/home/frieso/.npm-global/bin/claude`). Not a bug in this repo's code (`run_claude()` now at least surfaces it as a clear error instead of crashing), but the recurrence itself is unexplained — likely an auto-updater issue on the machine. Fix each time with `node <npm-global>/lib/node_modules/@anthropic-ai/claude-code/install.cjs`. *(found: 2026-07-21)*
 
 ---
