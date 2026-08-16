@@ -40,6 +40,19 @@ Written by `run_pipeline()` after `scrape_jobs()`. Array of postings, deduped by
 }]
 ```
 
+## `output/page_queue.json`
+
+Every page the last search discovered, plus which of them have been scraped. Written by `scrape_jobs()`, advanced by `scrape_more()`.
+
+```json
+{
+  "pages": [{"url": "string", "title": "string", "description": "string"}],
+  "scraped": ["<_dedup_key(url)>", "..."]
+}
+```
+
+Searching is cheap and scraping isn't, so discovery keeps everything it finds and only a batch of `MAX_PAGES_TO_SCRAPE` is paid for at a time. "Find more jobs" scrapes the next batch from `pages`, skipping anything already in `scraped`. A new search overwrites the file.
+
 ## `output/jobs.json`
 
 Written by `analyze_jobs()`, produced by `prompts/analyze.md`. Only jobs scored ≥ 60 are included.

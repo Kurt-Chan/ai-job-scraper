@@ -48,6 +48,9 @@ DEFAULT_CONFIG = {
 # each discovered URL and extract the individual postings from it. Cap the
 # number of pages scraped per run so credit usage stays bounded.
 MAX_PAGES_TO_SCRAPE = 20
+# No single site may take more than this many slots in one batch — one careers
+# page contributed 30 of 168 postings on a real run and half the apply verdicts.
+MAX_PAGES_PER_DOMAIN = 3
 SCRAPE_TIMEOUT_MS = 120000  # listing pages (JobStreet, LinkedIn) are JS-heavy
 
 # What Firecrawl should pull out of each scraped page.
@@ -276,16 +279,37 @@ def extract_postings(app: "FirecrawlApp", exa: "Exa | None", page: dict) -> list
     return _normalize_postings(raw_postings, listing_url, source) or _snippet_fallback()
 
 # ── step 1: search → scrape → individual postings ─────────
-def scrape_jobs(search_queries: list[str]) -> list[dict]:
+QUEUE_FILE = Path("output/page_queue.json")
+
+def _pick_batch(pages: list[dict], done: set[str], limit: int) -> list[dict]:
+    """Choose the next `limit` pages to scrape.
+
+    `pages` arrives interleaved round-robin across queries, so taking a prefix
+    already spreads the budget over every query. The one thing that ruins it is
+    a single site contributing dozens of hits — one careers page ate 30 of 168
+    postings on a real run — so no domain gets more than MAX_PAGES_PER_DOMAIN
+    slots in a batch.
+    """
+    batch, per_domain = [], {}
+    for page in pages:
+        if _dedup_key(page["url"]) in done:
+            continue
+        host = _canonical_host(urlparse(page["url"]).netloc)
+        if per_domain.get(host, 0) >= MAX_PAGES_PER_DOMAIN:
+            continue
+        per_domain[host] = per_domain.get(host, 0) + 1
+        batch.append(page)
+        if len(batch) == limit:
+            break
+    return batch
+
+def _scrape_batch(pages: list[dict]) -> list[dict]:
     app = FirecrawlApp(api_key=os.environ["FIRECRAWL_API_KEY"])
     exa = Exa(os.environ["EXA_API_KEY"]) if os.environ.get("EXA_API_KEY") else None
 
-    pages = discover_pages(app, search_queries)
-    print(f"  Discovered {len(pages)} candidate pages; scraping up to {MAX_PAGES_TO_SCRAPE}...")
-
     seen_urls: set[str] = set()
     jobs: list[dict] = []
-    for page in pages[:MAX_PAGES_TO_SCRAPE]:
+    for page in pages:
         print(f"  Scraping: {page['url'][:70]}...")
         for job in extract_postings(app, exa, page):
             url = job["url"]
@@ -293,8 +317,43 @@ def scrape_jobs(search_queries: list[str]) -> list[dict]:
                 continue
             seen_urls.add(_dedup_key(url))
             jobs.append(job)
-
     return jobs
+
+def scrape_jobs(search_queries: list[str]) -> list[dict]:
+    """Search, then scrape the first batch of what was found.
+
+    Every discovered page is saved to output/page_queue.json, not just the ones
+    scraped now — searching is cheap, scraping isn't, and the pages left over
+    are what `scrape_more()` works through later.
+    """
+    app = FirecrawlApp(api_key=os.environ["FIRECRAWL_API_KEY"])
+    pages = discover_pages(app, search_queries)
+
+    batch = _pick_batch(pages, set(), MAX_PAGES_TO_SCRAPE)
+    print(f"  Discovered {len(pages)} candidate pages; scraping {len(batch)}...")
+    QUEUE_FILE.write_text(json.dumps(
+        {"pages": pages, "scraped": [_dedup_key(p["url"]) for p in batch]}, indent=2
+    ))
+    return _scrape_batch(batch)
+
+def scrape_more() -> list[dict]:
+    """Scrape the next batch of already-discovered pages — no new search, and
+    never a page this queue has scraped before. Returns only the new postings;
+    the caller merges them into output/raw_jobs.json."""
+    if not QUEUE_FILE.exists():
+        raise RuntimeError("Nothing discovered yet — run a search first.")
+    queue = json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
+    done = set(queue.get("scraped", []))
+
+    batch = _pick_batch(queue.get("pages", []), done, MAX_PAGES_TO_SCRAPE)
+    if not batch:
+        raise RuntimeError("No pages left from the last search — start a new one.")
+
+    remaining = sum(1 for p in queue["pages"] if _dedup_key(p["url"]) not in done)
+    print(f"  {remaining} page(s) left from the last search; scraping {len(batch)}...")
+    queue["scraped"] = sorted(done | {_dedup_key(p["url"]) for p in batch})
+    QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+    return _scrape_batch(batch)
 
 # ── claude runner ─────────────────────────────────────────
 def run_claude(prompt_file: str, context: str = "") -> str:
@@ -386,6 +445,8 @@ def generate_cover_letters(jobs: list[dict]):
         title = job.get("title") or "role"
         slug = f"{_slug(company)}__{_slug(title)}"
         out_path = out_dir / f"{slug}.md"
+        if out_path.exists():
+            continue  # already written by an earlier run — don't pay for it twice
 
         print(f"  Writing cover letter: {company} — {title[:50]}...")
         try:
@@ -501,6 +562,8 @@ def generate_cvs(jobs: list[dict]):
         title = job.get("title") or "role"
         slug = f"{_slug(company)}__{_slug(title)}"
         typ_path = out_dir / f"{slug}.typ"
+        if typ_path.with_suffix(".pdf").exists():
+            continue  # already compiled by an earlier run
 
         print(f"  Writing CV: {company} — {title[:50]}...")
         try:
@@ -653,8 +716,13 @@ def apply_to_job(job: dict, on_progress=None) -> dict:
             "review": review, "skipped_edits": skipped}
 
 # ── pipeline orchestrator ──────────────────────────────────
-def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences: str = "") -> dict:
+def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences: str = "",
+                 find_more: bool = False) -> dict:
     """Run the full 5-step pipeline.
+
+    find_more=True skips the search entirely and scrapes the next batch of
+    pages the last search already found (see `scrape_more()`), merging the new
+    postings into the existing ones before rescoring. Nothing is scraped twice.
 
     resume_info, if given, is {"target_roles": [...], "key_skills": [...]} —
     typically the (possibly user-edited) result of a prior analyze_resume()
@@ -682,19 +750,28 @@ def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences:
         raise RuntimeError(f"Missing {RESUME_FILE} — add your resume before running.")
 
     emit(1, "Building search config", "running")
-    if resume_info is None:
-        resume_info = analyze_resume()
-    config = build_search_config(resume_info["target_roles"], resume_info["key_skills"], preferences)
-    search_queries = config.get("search_queries", [])
-    if not search_queries:
-        raise RuntimeError("No search queries generated — check prompts/build_queries.md")
+    if not find_more:
+        if resume_info is None:
+            resume_info = analyze_resume()
+        config = build_search_config(resume_info["target_roles"], resume_info["key_skills"], preferences)
+        search_queries = config.get("search_queries", [])
+        if not search_queries:
+            raise RuntimeError("No search queries generated — check prompts/build_queries.md")
     emit(1, "Building search config", "done")
 
     emit(2, "Scraping jobs", "running")
-    jobs = scrape_jobs(search_queries)
+    raw_file = Path("output/raw_jobs.json")
+    if find_more:
+        existing = json.loads(raw_file.read_text(encoding="utf-8")) if raw_file.exists() else []
+        seen = {_dedup_key(j.get("url", "")) for j in existing}
+        fresh = [j for j in scrape_more() if _dedup_key(j.get("url", "")) not in seen]
+        print(f"  {len(fresh)} new posting(s) on top of {len(existing)}")
+        jobs = existing + fresh
+    else:
+        jobs = scrape_jobs(search_queries)
     if not jobs:
         raise RuntimeError("No jobs found — check your FIRECRAWL_API_KEY or search queries.")
-    Path("output/raw_jobs.json").write_text(json.dumps(jobs, indent=2))
+    raw_file.write_text(json.dumps(jobs, indent=2))
     emit(2, "Scraping jobs", "done")
 
     emit(3, "Analyzing & scoring", "running")

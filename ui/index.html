@@ -138,7 +138,13 @@
           <button id="view-list-btn" onclick="setView('list')" class="text-sm px-2 py-1 rounded-md transition">List</button>
           <button id="view-grid-btn" onclick="setView('grid')" class="text-sm px-2 py-1 rounded-md transition">Grid</button>
         </div>
-        <span id="job-count" class="ml-auto text-xs text-gray-500"></span>
+        <button id="find-more-btn" onclick="findMore()"
+          title="Scrape the next batch of pages the last search already found — nothing is scraped twice"
+          class="ml-auto text-sm bg-gray-800 hover:bg-gray-700 border border-gray-700
+                 text-gray-300 px-3 py-1.5 rounded-lg transition">
+          Find more jobs
+        </button>
+        <span id="job-count" class="text-xs text-gray-500"></span>
       </div>
 
       <!-- Jobs List -->
@@ -501,7 +507,13 @@
     }
 
     /* ── run agent ───────────────────────────────────────── */
-    function runAgent(roles, skills, preferences) {
+    /* Scrape the next batch of pages the last search already found. No new
+       search, and no page is scraped twice — see scrape_more() in agent.py. */
+    function findMore() {
+      runAgent([], [], '', true);
+    }
+
+    function runAgent(roles, skills, preferences, nextBatchOnly = false) {
       const btn = document.getElementById('run-btn');
       const prog = document.getElementById('progress-section');
       const summary = document.getElementById('summary-banner');
@@ -519,6 +531,7 @@
       roles.forEach(r => params.append('roles', r));
       (skills || []).forEach(s => params.append('skills', s));
       if (preferences) params.set('preferences', preferences);
+      if (nextBatchOnly) params.set('find_more', 'true');
 
       const es = new EventSource(`/api/run?${params.toString()}`);
 

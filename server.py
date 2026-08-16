@@ -136,6 +136,7 @@ async def run_agent(
     roles: list[str] = Query(default=[]),
     skills: list[str] = Query(default=[]),
     preferences: str = "",
+    find_more: bool = False,
 ):
     if not run_lock.acquire(blocking=False):
         async def _busy():
@@ -152,7 +153,8 @@ async def run_agent(
     def _pipeline_thread() -> None:
         try:
             from agent import run_pipeline
-            result = run_pipeline(on_progress=_on_progress, resume_info=resume_info, preferences=preferences)
+            result = run_pipeline(on_progress=_on_progress, resume_info=resume_info,
+                                  preferences=preferences, find_more=find_more)
             q.put({"step": "complete", **result})
         except Exception as exc:
             q.put({"step": "error", "message": str(exc)})

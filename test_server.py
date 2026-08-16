@@ -113,9 +113,10 @@ def test_run_passes_roles_skills_and_preferences_to_pipeline(client, monkeypatch
     import agent
     captured = {}
 
-    def fake_run_pipeline(on_progress=None, resume_info=None, preferences=""):
+    def fake_run_pipeline(on_progress=None, resume_info=None, preferences="", find_more=False):
         captured["resume_info"] = resume_info
         captured["preferences"] = preferences
+        captured["find_more"] = find_more
         return {"total": 0, "above_threshold": 0}
 
     monkeypatch.setattr(agent, "run_pipeline", fake_run_pipeline)
@@ -126,13 +127,28 @@ def test_run_passes_roles_skills_and_preferences_to_pipeline(client, monkeypatch
     assert res.status_code == 200
     assert captured["resume_info"] == {"target_roles": ["Frontend Developer"], "key_skills": ["React"]}
     assert captured["preferences"] == "Egypt, USD"
+    assert captured["find_more"] is False
+
+
+def test_run_forwards_find_more_to_the_pipeline(client, monkeypatch):
+    import agent
+    captured = {}
+
+    def fake_run_pipeline(on_progress=None, resume_info=None, preferences="", find_more=False):
+        captured["find_more"] = find_more
+        return {"total": 0, "above_threshold": 0}
+
+    monkeypatch.setattr(agent, "run_pipeline", fake_run_pipeline)
+    client.get("/api/run", params={"find_more": "true"})
+
+    assert captured["find_more"] is True
 
 
 def test_run_uses_auto_detected_roles_when_none_given(client, monkeypatch):
     import agent
     captured = {}
 
-    def fake_run_pipeline(on_progress=None, resume_info=None, preferences=""):
+    def fake_run_pipeline(on_progress=None, resume_info=None, preferences="", find_more=False):
         captured["resume_info"] = resume_info
         return {"total": 0, "above_threshold": 0}
 

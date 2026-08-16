@@ -19,8 +19,11 @@ resume.md
 1. Build search config   Claude turns the selected roles/skills/preferences
    │                     into search queries
    ▼
-2. Discover & scrape     Firecrawl runs the queries, then scrapes each
-   │                     result page and extracts individual postings
+2. Discover & scrape     Firecrawl runs the queries, then scrapes a batch of
+   │                     result pages and extracts individual postings. Pages
+   │                     it didn't get to are queued, not discarded — "Find
+   │                     more jobs" works through them without re-searching
+   │                     or re-scraping anything
    ▼
 3. Analyze & score       Claude scores every posting 0–100 against your
    │                     profile and preferences (stack match, seniority,
@@ -47,7 +50,7 @@ Apply  →  draft  →  a second Claude call reviews it with fresh context,
           archived + tracked in output/applications.csv
 ```
 
-A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer, a per-job CV download, and an Apply button that shows the draft and the reviewed version side by side.
+A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer, a per-job CV download, an Apply button that shows the draft and the reviewed version side by side, and a "Find more jobs" button that scrapes the next batch of already-discovered pages.
 
 ## Dashboard
 

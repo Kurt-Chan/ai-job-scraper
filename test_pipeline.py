@@ -730,3 +730,138 @@ def test_run_pipeline_restores_descriptions_before_writing_copy(tmp_path, monkey
 
     assert seen["cl"][0]["description"] == "Airtable required."
     assert seen["cv"][0]["description"] == "Airtable required."
+
+
+def _page(url):
+    return {"url": url, "title": "", "description": ""}
+
+
+def test_pick_batch_caps_pages_per_domain():
+    import agent
+    pages = [_page(f"https://flood.com/{i}") for i in range(10)] + [
+        _page("https://other.com/1"), _page("https://third.com/1")]
+
+    batch = agent._pick_batch(pages, set(), limit=20)
+
+    assert sum(1 for p in batch if "flood.com" in p["url"]) == agent.MAX_PAGES_PER_DOMAIN
+    assert "https://other.com/1" in [p["url"] for p in batch]
+    assert "https://third.com/1" in [p["url"] for p in batch]
+
+
+def test_pick_batch_treats_regional_mirrors_as_one_domain():
+    import agent
+    pages = [_page("https://in.indeed.com/1"), _page("https://www.indeed.com/2"),
+             _page("https://uk.indeed.com/3"), _page("https://indeed.com/4")]
+
+    batch = agent._pick_batch(pages, set(), limit=20)
+
+    assert len(batch) == agent.MAX_PAGES_PER_DOMAIN
+
+
+def test_pick_batch_skips_pages_already_scraped():
+    import agent
+    pages = [_page("https://a.com/1"), _page("https://b.com/2")]
+
+    batch = agent._pick_batch(pages, {agent._dedup_key("https://a.com/1")}, limit=20)
+
+    assert [p["url"] for p in batch] == ["https://b.com/2"]
+
+
+def test_scrape_jobs_saves_every_discovered_page_not_just_the_scraped_ones(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "k")
+    pages = [_page(f"https://site{i}.com/j") for i in range(30)]
+
+    with patch.object(agent, "FirecrawlApp"), patch.object(agent, "discover_pages", return_value=pages), \
+         patch.object(agent, "_scrape_batch", return_value=[]):
+        agent.scrape_jobs(["q"])
+
+    queue = json.loads((tmp_path / "output" / "page_queue.json").read_text())
+    assert len(queue["pages"]) == 30                       # everything found is kept
+    assert len(queue["scraped"]) == agent.MAX_PAGES_TO_SCRAPE  # only a batch was paid for
+
+
+def test_scrape_more_takes_the_next_batch_and_never_repeats(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "k")
+    pages = [_page(f"https://site{i}.com/j") for i in range(30)]
+    first = [agent._dedup_key(p["url"]) for p in pages[:20]]
+    agent.QUEUE_FILE.write_text(json.dumps({"pages": pages, "scraped": first}))
+
+    scraped = []
+    with patch.object(agent, "_scrape_batch", side_effect=lambda b: scraped.extend(b) or []):
+        agent.scrape_more()
+
+    assert [p["url"] for p in scraped] == [p["url"] for p in pages[20:]]
+    assert len(json.loads(agent.QUEUE_FILE.read_text())["scraped"]) == 30
+
+
+def test_scrape_more_refuses_when_the_queue_is_exhausted(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    pages = [_page("https://a.com/1")]
+    agent.QUEUE_FILE.write_text(json.dumps(
+        {"pages": pages, "scraped": [agent._dedup_key("https://a.com/1")]}))
+
+    with pytest.raises(RuntimeError, match="No pages left"):
+        agent.scrape_more()
+
+
+def test_scrape_more_refuses_before_any_search(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match="Nothing discovered yet"):
+        agent.scrape_more()
+
+
+def test_find_more_run_merges_new_postings_and_skips_the_search(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "resume.md").write_text("# Resume")
+    (tmp_path / "output").mkdir()
+    existing = [{"title": "Old", "url": "https://x/1", "description": "d"}]
+    (tmp_path / "output" / "raw_jobs.json").write_text(json.dumps(existing))
+    found = [{"title": "Old", "url": "https://x/1", "description": "d"},
+             {"title": "New", "url": "https://x/2", "description": "d"}]
+
+    with patch.object(agent, "build_search_config") as build, \
+         patch.object(agent, "scrape_jobs") as search_scrape, \
+         patch.object(agent, "scrape_more", return_value=found), \
+         patch.object(agent, "analyze_jobs", return_value=[]), \
+         patch.object(agent, "generate_cover_letters"), patch.object(agent, "generate_cvs"):
+        agent.run_pipeline(find_more=True)
+
+    build.assert_not_called()
+    search_scrape.assert_not_called()
+    merged = json.loads((tmp_path / "output" / "raw_jobs.json").read_text())
+    assert [j["url"] for j in merged] == ["https://x/1", "https://x/2"]
+
+
+def test_generate_cover_letters_skips_ones_already_written(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "cover_letters").mkdir(parents=True)
+    (tmp_path / "output" / "cover_letters" / "co__dev.md").write_text("already here")
+
+    with patch.object(agent, "run_claude") as claude:
+        agent.generate_cover_letters([{"company": "Co", "title": "Dev"}])
+
+    claude.assert_not_called()
+    assert (tmp_path / "output" / "cover_letters" / "co__dev.md").read_text() == "already here"
+
+
+def test_generate_cvs_skips_ones_already_compiled(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "cvs").mkdir(parents=True)
+    (tmp_path / "output" / "cvs" / "co__dev.pdf").write_bytes(b"%PDF")
+
+    with patch.object(agent, "run_claude") as claude:
+        agent.generate_cvs([{"company": "Co", "title": "Dev"}])
+
+    claude.assert_not_called()
