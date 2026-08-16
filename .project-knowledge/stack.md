@@ -15,7 +15,7 @@
 | Styling | Tailwind (CDN, no build step) |
 | State Mgmt | Vanilla JS, in-memory (`allJobs` array in `ui/index.html`) |
 | Testing | pytest + httpx (FastAPI TestClient) |
-| Key Libraries | `firecrawl-py` (search + scrape), `exa-py` (fallback extraction), `python-dotenv` |
+| Key Libraries | `firecrawl-py` (search + scrape), `exa-py` (fallback extraction), `python-dotenv`. Stdlib `csv` backs the application tracker |
 | AI | Claude Code CLI invoked as a subprocess (`claude -p ...`), not the Anthropic SDK |
 | Deployment | None — local dev tool, run via `python server.py` |
 
@@ -25,8 +25,9 @@
 |---------|-------------|
 | `python -m venv .venv && .venv/bin/pip install -r requirements.txt` | Install deps (needed on externally-managed Python distros, e.g. Arch — plain `pip install` fails there) |
 | `python server.py` | Start FastAPI dashboard at http://127.0.0.1:8000 |
-| `python agent.py` | Run the 4-step pipeline headless (no UI) |
-| `pytest` | Run `test_pipeline.py` + `test_server.py` (Claude/Firecrawl mocked) |
+| `python agent.py` | Run the 5-step pipeline headless (no UI) |
+| `pytest` | Run `test_pipeline.py` + `test_server.py` — 84 tests, everything external mocked (Claude, Firecrawl, Exa, typst, pdftotext) |
+| `typst compile templates/cv.typ` | Render the CV template standalone to check styling changes |
 
 ## Environment Variables
 
