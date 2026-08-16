@@ -153,3 +153,50 @@ def test_cv_found(client, tmp_path):
 
 def test_cv_not_found(client):
     assert client.get("/api/cv?company=Nobody&title=Nothing").status_code == 404
+
+
+def test_apply_streams_progress_and_result(client, tmp_path, monkeypatch):
+    job = {"company": "Co", "title": "Dev", "url": "https://x/1", "score": 90}
+    (tmp_path / "output" / "jobs.json").write_text(json.dumps([job]))
+
+    import agent
+    monkeypatch.setattr(agent, "apply_to_job", lambda j, on_progress=None: (
+        on_progress("Drafting"), {"slug": "co__dev", "draft": "d", "revised": "r",
+                                  "review": {"edits": []}, "skipped_edits": []})[1])
+
+    res = client.get("/api/apply?url=https://x/1")
+    assert res.status_code == 200
+    assert '"step": "Drafting"' in res.text
+    assert '"revised": "r"' in res.text
+
+
+def test_apply_404s_for_an_unknown_job(client, tmp_path):
+    (tmp_path / "output" / "jobs.json").write_text(json.dumps([]))
+    assert client.get("/api/apply?url=https://nope").status_code == 404
+
+
+def test_apply_404s_before_any_pipeline_run(client):
+    assert client.get("/api/apply?url=https://x/1").status_code == 404
+
+
+def test_apply_reports_errors_over_the_stream(client, tmp_path, monkeypatch):
+    (tmp_path / "output" / "jobs.json").write_text(json.dumps([{"url": "https://x/1"}]))
+
+    import agent
+    def boom(job, on_progress=None):
+        raise RuntimeError("claude exploded")
+    monkeypatch.setattr(agent, "apply_to_job", boom)
+
+    res = client.get("/api/apply?url=https://x/1")
+    assert '"step": "error"' in res.text
+    assert "claude exploded" in res.text
+
+
+def test_post_status_marks_the_tracked_application(client, tmp_path):
+    import agent
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1"})
+
+    client.post("/api/status", json={"url": "https://x/1", "status": "applied"})
+
+    rows = (tmp_path / "output" / "applications.csv").read_text()
+    assert "applied" in rows

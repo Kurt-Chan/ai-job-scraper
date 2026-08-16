@@ -159,6 +159,34 @@
       </div>
     </div>
 
+    <!-- Apply Modal -->
+    <div id="apply-modal" class="hidden fixed inset-0 bg-black/75 flex items-center
+       justify-center z-50 p-4" onclick="if(event.target===this)closeApply()">
+      <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full
+                max-w-5xl max-h-[85vh] flex flex-col">
+        <div class="flex justify-between items-center mb-1 shrink-0">
+          <h2 class="font-semibold">Application Draft</h2>
+          <button onclick="closeApply()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+        <p id="apply-status" class="text-sm text-gray-500 mb-4 shrink-0"></p>
+        <div class="overflow-y-auto flex-1">
+          <div id="apply-panes" class="hidden grid md:grid-cols-2 gap-4">
+            <div>
+              <h3 class="text-xs uppercase tracking-wide text-gray-600 mb-1">Initial draft</h3>
+              <pre id="apply-draft" class="whitespace-pre-wrap text-sm text-gray-500 font-mono
+                                          leading-relaxed bg-gray-950 rounded-lg p-3"></pre>
+            </div>
+            <div>
+              <h3 class="text-xs uppercase tracking-wide text-green-700 mb-1">After review</h3>
+              <pre id="apply-revised" class="whitespace-pre-wrap text-sm text-gray-200 font-mono
+                                            leading-relaxed bg-gray-950 rounded-lg p-3"></pre>
+            </div>
+          </div>
+          <div id="apply-review" class="mt-4 space-y-3"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -620,6 +648,10 @@
                class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
               CV ↗
             </a>
+            <button onclick="openApply('${esc(job.url ?? '')}')"
+              class="text-sm bg-green-800 hover:bg-green-700 text-green-100 px-3 py-1.5 rounded-lg transition">
+              Apply
+            </button>
           </div>
           <button onclick="toggleStatus('${esc(job.url ?? '')}','${esc(job.status ?? 'none')}')"
             class="w-full text-sm px-3 py-1.5 rounded-lg transition mt-2 ${statusCls(job.status)}">
@@ -666,6 +698,84 @@
 
     function closeCL() {
       document.getElementById('cl-modal').classList.add('hidden');
+    }
+
+    /* ── apply stage (draft → review → revise) ───────────── */
+    function closeApply() {
+      document.getElementById('apply-modal').classList.add('hidden');
+    }
+
+    function renderReview(review, skipped) {
+      const box = document.getElementById('apply-review');
+      const ungrounded = review.ungrounded_claims ?? [];
+      const coverage = review.coverage ?? [];
+      const badge = {
+        matched: 'text-green-400', bridged: 'text-yellow-400', gap: 'text-red-400'
+      };
+      box.innerHTML = `
+        ${ungrounded.length ? `
+          <div class="bg-red-950 border border-red-900 rounded-lg p-3">
+            <h3 class="text-xs uppercase tracking-wide text-red-400 mb-1">
+              Claims not found in your resume (${ungrounded.length})</h3>
+            <ul class="text-sm text-red-200 space-y-1 list-disc list-inside">
+              ${ungrounded.map(c => `<li>${esc(c.claim ?? '')} — <span class="text-red-400">${esc(c.why ?? '')}</span></li>`).join('')}
+            </ul>
+          </div>` : ''}
+        ${coverage.length ? `
+          <div class="bg-gray-950 border border-gray-800 rounded-lg p-3">
+            <h3 class="text-xs uppercase tracking-wide text-gray-600 mb-1">Requirement coverage</h3>
+            <ul class="text-sm text-gray-300 space-y-1">
+              ${coverage.map(c => `<li><span class="${badge[c.status] ?? 'text-gray-500'} font-medium">
+                ${esc(c.status ?? '')}</span> — ${esc(c.requirement ?? '')}
+                ${c.note ? `<span class="text-gray-500">(${esc(c.note)})</span>` : ''}</li>`).join('')}
+            </ul>
+          </div>` : ''}
+        ${skipped?.length ? `
+          <div class="bg-yellow-950 border border-yellow-900 rounded-lg p-3">
+            <h3 class="text-xs uppercase tracking-wide text-yellow-500 mb-1">
+              Edits skipped (${skipped.length})</h3>
+            <p class="text-xs text-yellow-200/70 mb-1">The reviewer's text didn't match the draft exactly, so it was left alone rather than guessed at.</p>
+            <ul class="text-sm text-yellow-200 space-y-1 list-disc list-inside">
+              ${skipped.map(s => `<li>${esc(s)}</li>`).join('')}
+            </ul>
+          </div>` : ''}`;
+    }
+
+    function openApply(url) {
+      const modal = document.getElementById('apply-modal');
+      const status = document.getElementById('apply-status');
+      const panes = document.getElementById('apply-panes');
+      panes.classList.add('hidden');
+      document.getElementById('apply-review').innerHTML = '';
+      status.className = 'text-sm text-gray-500 mb-4 shrink-0';
+      status.textContent = 'Starting…';
+      modal.classList.remove('hidden');
+
+      const es = new EventSource(`/api/apply?url=${encodeURIComponent(url)}`);
+      es.onmessage = ({ data }) => {
+        const ev = JSON.parse(data);
+        if (ev.step === 'error') {
+          es.close();
+          status.className = 'text-sm text-red-400 mb-4 shrink-0';
+          status.textContent = `Failed: ${ev.message}`;
+          return;
+        }
+        if (ev.step === 'complete') {
+          es.close();
+          status.textContent = 'Done — review the changes before you send anything.';
+          document.getElementById('apply-draft').textContent = ev.draft;
+          document.getElementById('apply-revised').textContent = ev.revised;
+          panes.classList.remove('hidden');
+          renderReview(ev.review ?? {}, ev.skipped_edits);
+          return;
+        }
+        status.textContent = `${ev.step}…`;
+      };
+      es.onerror = () => {
+        es.close();
+        status.className = 'text-sm text-red-400 mb-4 shrink-0';
+        status.textContent = 'Connection lost.';
+      };
     }
 
     /* ── init ────────────────────────────────────────────── */

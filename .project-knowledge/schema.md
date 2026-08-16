@@ -1,6 +1,6 @@
 # Schema
 
-> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-07-21
+> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-08-16
 > No database — all state lives in gitignored JSON files under `output/`. This is a navigable summary of their shapes.
 
 ## `output/search_config.json`
@@ -59,6 +59,8 @@ Written by `analyze_jobs()`, produced by `prompts/analyze.md`. Only jobs scored 
 
 `/api/jobs` adds a `status` field at read time (not persisted here) from `output/status.json`.
 
+**Note the missing `description`** — `prompts/analyze.md` doesn't carry the posting text through, so anything that needs the posting's own words (CV tailoring, the apply stage's coverage review, the archived `job_posting.md`) reads it back from `output/raw_jobs.json` via `_scraped_description(url)`, matched on canonical URL. Never let Claude recall what a posting said.
+
 ## `output/status.json`
 
 Simple map, written/read by `server.py` (`_read_status` / `_write_status`).
@@ -72,3 +74,33 @@ Entries are removed (not set to `"none"`) when status is cleared.
 ## `output/cover_letters/*.md`
 
 One plain-text file per "apply"-verdict job, named `{slug(company)}__{slug(title)}.md` (see `_slug()` in `agent.py`). No frontmatter — raw cover letter text only.
+
+## `output/cvs/*.typ` + `*.pdf`
+
+One tailored CV per "apply"-verdict job, same `{slug(company)}__{slug(title)}` naming. The `.typ` is Claude's generated Typst source (whole document, not a filled template); the `.pdf` is what `typst compile` produced from it. `GET /api/cv` serves the PDF.
+
+## `output/applications.csv`
+
+The application tracker, written by `record_application()` / `set_application_status()` in `agent.py`. Keyed by `source` (the job URL) — re-drafting the same job rewrites its row rather than appending a duplicate. Rewritten whole on every change, header included.
+
+| Column | Notes |
+|--------|-------|
+| `date` | `YYYY-MM-DD`, the day the application was last drafted |
+| `company`, `role` | Copied from the job |
+| `status` | `drafted` on first write; `applied`/`skipped` when the UI's status button fires `POST /api/status` |
+| `fit_score` | The job's `score` from `jobs.json` |
+| `cv_file`, `cover_letter_file` | Repo-relative paths; `cv_file` is empty when no CV was generated |
+| `source` | Job URL — the row key |
+
+`POST /api/status` only updates rows that already exist. Marking a never-drafted job applied does **not** create a tracker row: the CSV records applications, not every job that was scored.
+
+## `output/applications/<slug>/`
+
+One directory per drafted application:
+
+| File | Contents |
+|------|----------|
+| `job_posting.md` | The posting's title, URL and verbatim text, archived at draft time |
+| `cover_letter_draft.md` | The drafter's output, before review |
+| `review.json` | `{ungrounded_claims: [{claim, why}], coverage: [{requirement, status, note}], edits: [{old_string, new_string, reason}]}` — status is `matched \| bridged \| gap` |
+| `cover_letter.md` | The draft with the reviewer's edits applied — the one to send |

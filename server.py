@@ -60,6 +60,8 @@ async def update_status(body: StatusUpdate):
     else:
         data[body.url] = body.status
     _write_status(data)
+    from agent import set_application_status
+    set_application_status(body.url, body.status)
     return {"ok": True}
 
 
@@ -80,6 +82,42 @@ async def get_cv(company: str = Query(...), title: str = Query(...)):
     if not path.exists():
         raise HTTPException(status_code=404, detail="CV not found")
     return FileResponse(path, media_type="application/pdf")
+
+
+@app.get("/api/apply")
+async def apply(url: str = Query(...)):
+    """Run the drafter-reviewer apply stage for one job, streaming progress."""
+    if not JOBS_FILE.exists():
+        raise HTTPException(status_code=404, detail="No jobs yet — run the pipeline first.")
+    jobs = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
+    job = next((j for j in jobs if j.get("url") == url), None)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    q: queue.Queue = queue.Queue()
+
+    def _apply_thread() -> None:
+        try:
+            from agent import apply_to_job
+            result = apply_to_job(job, on_progress=lambda label: q.put({"step": label}))
+            q.put({"step": "complete", **result})
+        except Exception as exc:
+            q.put({"step": "error", "message": str(exc)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=_apply_thread, daemon=True).start()
+
+    async def _event_stream():
+        import asyncio
+        loop = asyncio.get_running_loop()
+        while True:
+            event = await loop.run_in_executor(None, q.get)
+            if event is None:
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/resume-roles")

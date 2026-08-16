@@ -13,6 +13,8 @@ Scoring factors:
 
 Location matching is strict, not a soft preference. If run preferences state a target location (e.g. a specific country or "worldwide remote"), and a job's title, description, or requirements name a *different* specific country/region as a requirement (e.g. "(India)" in the title, "must be based in the Philippines", "candidates must reside in the US") — that is disqualifying. Cap the score at 40 and set verdict to "skip", regardless of how well the skills match. Do NOT infer a location mismatch from the URL/domain alone (e.g. a job scraped from an Indian job-board mirror like in.indeed.com or glassdoor.co.in) — judge only by what the posting's own content requires; many such postings are genuinely open to any remote location.
 
+Language requirements are also strict. If a posting requires working proficiency in a language the resume doesn't list at all, that is disqualifying — cap the score at 40 and set verdict to "skip". If it requires a *higher* level than the resume declares (posting wants native/C2, resume says conversational), don't drop it silently: keep the score, set verdict to "review", and say so in `red_flags`. Never assume a language the resume doesn't mention, and don't treat the posting's own language as a requirement unless it says so.
+
 Include only jobs with score >= 60.
 
 Your entire response must be only the raw JSON array — no markdown fences, no explanation, nothing before or after it:

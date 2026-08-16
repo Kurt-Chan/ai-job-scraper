@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -477,3 +478,243 @@ def test_verify_cv_skipped_when_pdftotext_missing(tmp_path):
     import agent
     with patch.object(agent.shutil, "which", return_value=None):
         assert agent._verify_cv(tmp_path / "cv.pdf") == []
+
+
+def test_apply_edits_replaces_exact_matches():
+    import agent
+    text = "I led the migration. I mentored engineers."
+    edits = [{"old_string": "led the migration", "new_string": "worked on the migration"}]
+
+    revised, skipped = agent._apply_edits(text, edits)
+
+    assert revised == "I worked on the migration. I mentored engineers."
+    assert skipped == []
+
+
+def test_apply_edits_deletes_on_empty_new_string():
+    import agent
+    revised, skipped = agent._apply_edits("Keep this. Cut this.", [{"old_string": " Cut this.", "new_string": ""}])
+    assert revised == "Keep this."
+    assert skipped == []
+
+
+def test_apply_edits_skips_unmatched_and_ambiguous_edits():
+    import agent
+    text = "the same phrase and the same phrase again"
+    edits = [
+        {"old_string": "never appears", "new_string": "x"},
+        {"old_string": "the same phrase", "new_string": "y"},
+    ]
+
+    revised, skipped = agent._apply_edits(text, edits)
+
+    assert revised == text
+    assert len(skipped) == 2
+    assert any("no match" in s for s in skipped)
+    assert any("2 matches" in s for s in skipped)
+
+
+def test_apply_to_job_writes_posting_draft_review_and_letter(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    job = {"company": "Tech Co", "title": "Backend Engineer", "url": "https://example.com/j/1",
+           "description": "We need Python.", "score": 88}
+    review = {"ungrounded_claims": [], "coverage": [],
+              "edits": [{"old_string": "eight", "new_string": "5"}]}
+
+    with patch.object(agent, "run_claude", return_value="I have eight years of Python."), \
+         patch.object(agent, "run_claude_json", return_value=review):
+        result = agent.apply_to_job(job)
+
+    out = tmp_path / "output" / "applications" / "tech-co__backend-engineer"
+    assert "We need Python." in (out / "job_posting.md").read_text()
+    assert (out / "cover_letter_draft.md").read_text() == "I have eight years of Python."
+    assert (out / "cover_letter.md").read_text() == "I have 5 years of Python."
+    assert json.loads((out / "review.json").read_text()) == review
+    assert result["revised"] == "I have 5 years of Python."
+    assert result["skipped_edits"] == []
+
+
+def test_apply_to_job_reviews_the_exact_draft_it_wrote(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    captured = {}
+
+    with patch.object(agent, "run_claude", return_value="The drafted letter."), \
+         patch.object(agent, "run_claude_json",
+                      side_effect=lambda f, context="": captured.update(context=context) or {"edits": []}):
+        agent.apply_to_job({"company": "Co", "title": "Dev", "url": "u"})
+
+    assert "---DRAFT---\nThe drafted letter." in captured["context"]
+
+
+def test_apply_to_job_emits_progress_labels(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    labels = []
+
+    with patch.object(agent, "run_claude", return_value="draft"), \
+         patch.object(agent, "run_claude_json", return_value={"edits": []}):
+        agent.apply_to_job({"company": "Co", "title": "Dev", "url": "u"}, on_progress=labels.append)
+
+    assert labels == ["Drafting", "Reviewing", "Revising"]
+
+
+def test_record_application_writes_a_row(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1", "score": 91})
+
+    rows = list(csv.DictReader((tmp_path / "output" / "applications.csv").open()))
+    assert len(rows) == 1
+    assert rows[0]["company"] == "Co"
+    assert rows[0]["fit_score"] == "91"
+    assert rows[0]["status"] == "drafted"
+
+
+def test_record_application_updates_instead_of_duplicating(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1"})
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1"}, cv_file="cv.pdf")
+
+    rows = list(csv.DictReader((tmp_path / "output" / "applications.csv").open()))
+    assert len(rows) == 1
+    assert rows[0]["cv_file"] == "cv.pdf"
+
+
+def test_set_application_status_updates_a_tracked_row(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1"})
+
+    agent.set_application_status("https://x/1", "applied")
+
+    rows = list(csv.DictReader((tmp_path / "output" / "applications.csv").open()))
+    assert rows[0]["status"] == "applied"
+
+
+def test_set_application_status_ignores_untracked_jobs(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    agent.record_application({"company": "Co", "title": "Dev", "url": "https://x/1"})
+
+    agent.set_application_status("https://never-drafted", "applied")
+
+    rows = list(csv.DictReader((tmp_path / "output" / "applications.csv").open()))
+    assert len(rows) == 1
+    assert rows[0]["status"] == "drafted"
+
+
+def test_set_application_status_without_a_csv_is_a_noop(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    agent.set_application_status("https://x/1", "applied")
+    assert not (tmp_path / "output" / "applications.csv").exists()
+
+
+def test_missing_keywords_reports_terms_absent_from_the_cv():
+    import agent
+    job = {"title": "Airtable Specialist", "description": "Notion and Airtable required. QuickBooks a plus."}
+
+    missing = agent._missing_keywords(job, "I use Notion daily and manage invoices.")
+
+    assert "airtable" in missing
+    assert "quickbooks" in missing
+    assert "notion" not in missing
+
+
+def test_missing_keywords_ignores_filler_words():
+    import agent
+    missing = agent._missing_keywords({"title": "", "description": "You must have experience with the team"}, "")
+    assert missing == []
+
+
+def test_generate_cvs_retries_once_when_over_one_page(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    contexts = []
+
+    def fake_run_claude(prompt_file, context=""):
+        contexts.append(context)
+        return "#set page()"
+
+    verdicts = iter([["CV is 2 pages — should be one"], []])
+    with patch.object(agent, "run_claude", side_effect=fake_run_claude), \
+         patch.object(agent, "_compile_cv"), \
+         patch.object(agent, "_verify_cv", side_effect=lambda p, j=None: next(verdicts)):
+        agent.generate_cvs([{"company": "Co", "title": "Dev"}])
+
+    assert len(contexts) == 2
+    assert "overflowed onto a second page" in contexts[1]
+
+
+def test_generate_cvs_does_not_retry_a_clean_one_pager(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    calls = []
+
+    with patch.object(agent, "run_claude", side_effect=lambda f, context="": calls.append(1) or "#set page()"), \
+         patch.object(agent, "_compile_cv"), patch.object(agent, "_verify_cv", return_value=[]):
+        agent.generate_cvs([{"company": "Co", "title": "Dev"}])
+
+    assert len(calls) == 1
+
+
+def test_scraped_description_recovers_posting_text_dropped_by_analyze(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "raw_jobs.json").write_text(json.dumps(
+        [{"url": "https://www.indeed.com/viewjob?jk=1", "description": "We need Airtable."}]))
+
+    # analyze.md returns a regional mirror of the same URL and no description
+    assert agent._scraped_description("https://in.indeed.com/viewjob?jk=1") == "We need Airtable."
+
+
+def test_scraped_description_returns_empty_when_unavailable(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    assert agent._scraped_description("https://x/1") == ""
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "raw_jobs.json").write_text("not json")
+    assert agent._scraped_description("https://x/1") == ""
+
+
+def test_apply_to_job_archives_the_scraped_posting_text(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "raw_jobs.json").write_text(json.dumps(
+        [{"url": "https://x/1", "description": "Verbatim posting text."}]))
+
+    with patch.object(agent, "run_claude", return_value="draft"), \
+         patch.object(agent, "run_claude_json", return_value={"edits": []}):
+        agent.apply_to_job({"company": "Co", "title": "Dev", "url": "https://x/1"})
+
+    archived = (tmp_path / "output" / "applications" / "co__dev" / "job_posting.md").read_text()
+    assert "Verbatim posting text." in archived
+
+
+def test_run_pipeline_restores_descriptions_before_writing_copy(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "resume.md").write_text("# Resume")
+    (tmp_path / "output").mkdir()
+
+    scraped = [{"title": "Dev", "company": "Co", "location": "Remote", "url": "https://x/1",
+                "description": "Airtable required.", "posted_date": "", "source": "x"}]
+    analyzed = [{"title": "Dev", "company": "Co", "url": "https://x/1", "score": 85,
+                 "verdict": "apply", "match_reasons": [], "red_flags": [], "suggested_angle": ""}]
+    seen = {}
+
+    with patch.object(agent, "analyze_resume", return_value={"target_roles": [], "key_skills": []}), \
+         patch.object(agent, "build_search_config", return_value={"search_queries": ["q"]}), \
+         patch.object(agent, "scrape_jobs", return_value=scraped), \
+         patch.object(agent, "analyze_jobs", return_value=analyzed), \
+         patch.object(agent, "generate_cover_letters", side_effect=lambda jobs: seen.update(cl=jobs)), \
+         patch.object(agent, "generate_cvs", side_effect=lambda jobs: seen.update(cv=jobs)):
+        agent.run_pipeline()
+
+    assert seen["cl"][0]["description"] == "Airtable required."
+    assert seen["cv"][0]["description"] == "Airtable required."

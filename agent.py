@@ -1,4 +1,5 @@
 # agent.py
+import csv
 import json
 import os
 import re
@@ -402,28 +403,84 @@ def _compile_cv(typ_path: Path) -> Path:
         raise RuntimeError(f"typst compile failed: {result.stderr.strip()[:300]}")
     return pdf_path
 
-def _verify_cv(pdf_path: Path) -> list[str]:
-    """Check the compiled PDF's ATS text layer. Returns a list of warnings —
-    empty means it passed. Skipped silently if pdftotext isn't installed."""
+def _cv_text(pdf_path: Path) -> str | None:
+    """The compiled CV's text layer, as an ATS would read it. None when
+    pdftotext isn't installed or can't read the file."""
     if not shutil.which("pdftotext"):
-        return []
+        return None
     result = subprocess.run(
         ["pdftotext", str(pdf_path), "-"], capture_output=True, text=True, encoding="utf-8"
     )
-    if result.returncode != 0:
-        return ["pdftotext could not read the PDF — the text layer may be broken"]
-    text = result.stdout
+    return result.stdout if result.returncode == 0 else None
+
+# Words too generic to mean anything as a posting keyword.
+_STOPWORDS = set("""a an the and or of to in for with on at by from as is are be will you your we our us
+their this that it its role job work working experience experienced years year team teams company
+strong excellent good great ability able skills skill required requirements requires must should
+plus nice have has help helping join looking ideal candidate candidates who what when where how
+remote fulltime full time part contract freelance hourly per day week month new other more most
+using used use across into over about than then them they he she his her all any some more via
+""".split())
+
+def _missing_keywords(job: dict, cv_text: str) -> list[str]:
+    """Notable terms from the posting that never appear in the CV's text layer.
+
+    Deliberately dumb: it flags terms for a human to judge, it doesn't decide
+    whether a gap is real. A term the candidate genuinely lacks *should* stay
+    missing — the prompt is told never to claim a skill the resume lacks.
+    """
+    posting = f"{job.get('title', '')} {job.get('description', '')}".lower()
+    cv_lower = cv_text.lower()
+    seen, missing = set(), []
+    for term in re.findall(r"[a-z][a-z0-9+#.]{2,}", posting):
+        term = term.strip(".")
+        if term in _STOPWORDS or term in seen:
+            continue
+        seen.add(term)
+        if term not in cv_lower:
+            missing.append(term)
+    return missing
+
+def _verify_cv(pdf_path: Path, job: dict | None = None) -> list[str]:
+    """Check the compiled PDF's ATS text layer. Returns a list of warnings —
+    empty means it passed. Skipped silently if pdftotext isn't installed."""
+    text = _cv_text(pdf_path)
+    if text is None:
+        return []
     warnings = []
     if len(text.split()) < 50:
         warnings.append("text layer is nearly empty — an ATS would see a blank CV")
     if "@" not in text:
         warnings.append("no email address in the text layer")
-    if text.count("\f") > 1:
-        warnings.append(f"CV is {text.count(chr(12))} pages — should be one")
+    pages = text.count("\f")
+    if pages > 1:
+        warnings.append(f"CV is {pages} pages — should be one")
+    if job:
+        missing = _missing_keywords(job, text)
+        if missing:
+            warnings.append(
+                f"{len(missing)} posting term(s) absent from the CV — real gaps are fine, "
+                f"but check for ones the resume could honestly cover: {', '.join(missing[:12])}"
+            )
     return warnings
 
+def _write_cv(job: dict, typ_path: Path, extra: str = "") -> Path:
+    """One CV: ask Claude for the Typst source, write it, compile it."""
+    context = json.dumps(job, indent=2) + extra
+    source = run_claude("prompts/cv.md", context=context)
+    if source.startswith("```"):
+        source = re.sub(r"^```[a-zA-Z]*\s*\n", "", source)
+        source = re.sub(r"\n```\s*$", "", source)
+    typ_path.write_text(source, encoding="utf-8")
+    return _compile_cv(typ_path)
+
 def generate_cvs(jobs: list[dict]):
-    """Write, compile and verify a tailored CV per job."""
+    """Write, compile and verify a tailored CV per job.
+
+    A CV that overflows one page is regenerated once, told to cut the least
+    relevant material. One retry, not a loop — a second overflow means the
+    resume genuinely doesn't fit and that's for the user to see.
+    """
     out_dir = Path("output/cvs")
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -431,20 +488,157 @@ def generate_cvs(jobs: list[dict]):
         company = job.get("company") or "unknown"
         title = job.get("title") or "role"
         slug = f"{_slug(company)}__{_slug(title)}"
+        typ_path = out_dir / f"{slug}.typ"
 
         print(f"  Writing CV: {company} — {title[:50]}...")
         try:
-            source = run_claude("prompts/cv.md", context=json.dumps(job, indent=2))
-            if source.startswith("```"):
-                source = re.sub(r"^```[a-zA-Z]*\s*\n", "", source)
-                source = re.sub(r"\n```\s*$", "", source)
-            typ_path = out_dir / f"{slug}.typ"
-            typ_path.write_text(source, encoding="utf-8")
-            pdf_path = _compile_cv(typ_path)
-            for warning in _verify_cv(pdf_path):
+            pdf_path = _write_cv(job, typ_path)
+            warnings = _verify_cv(pdf_path, job)
+            if any("pages" in w for w in warnings):
+                print("    Over one page — regenerating with tighter cuts...")
+                pdf_path = _write_cv(job, typ_path, extra=(
+                    "\n\nYour previous attempt overflowed onto a second page. Rewrite it to fit "
+                    "one page: drop the bullets and roles least relevant to THIS posting first, "
+                    "and tighten the wording of what stays. Keep every contact detail, and do not "
+                    "reduce the font sizes or margins from the template."
+                ))
+                warnings = _verify_cv(pdf_path, job)
+            for warning in warnings:
                 print(f"    ATS warning: {warning}")
         except Exception as e:
             print(f"  Failed for {slug}: {e}")
+
+# ── apply stage: draft → review → revise ──────────────────
+APPLICATIONS_DIR = Path("output/applications")
+APPLICATIONS_CSV = Path("output/applications.csv")
+CSV_COLUMNS = ["date", "company", "role", "status", "fit_score",
+               "cv_file", "cover_letter_file", "source"]
+
+def _apply_edits(text: str, edits: list[dict]) -> tuple[str, list[str]]:
+    """Apply the reviewer's replacements mechanically. An edit whose old_string
+    isn't found verbatim, or appears more than once, is skipped and reported —
+    guessing at what the reviewer meant would put words in the letter that
+    neither the drafter nor the reviewer wrote."""
+    skipped = []
+    for edit in edits:
+        old = edit.get("old_string") or ""
+        if not old:
+            continue
+        count = text.count(old)
+        if count != 1:
+            skipped.append(f"{'no match' if count == 0 else f'{count} matches'}: {old[:60]!r}")
+            continue
+        text = text.replace(old, edit.get("new_string") or "")
+    return text, skipped
+
+def record_application(job: dict, cover_letter_file: str = "", cv_file: str = "") -> None:
+    """Append a row to output/applications.csv, keyed by job URL — re-applying
+    to the same job updates its row instead of adding a duplicate."""
+    APPLICATIONS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    rows = {}
+    if APPLICATIONS_CSV.exists():
+        with APPLICATIONS_CSV.open(newline="", encoding="utf-8") as f:
+            rows = {r["source"]: r for r in csv.DictReader(f)}
+    rows[job.get("url", "")] = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "company": job.get("company", ""),
+        "role": job.get("title", ""),
+        "status": "drafted",
+        "fit_score": job.get("score", ""),
+        "cv_file": cv_file,
+        "cover_letter_file": cover_letter_file,
+        "source": job.get("url", ""),
+    }
+    with APPLICATIONS_CSV.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows.values())
+
+def _scraped_description(url: str) -> str:
+    """The posting's own text from output/raw_jobs.json.
+
+    analyze.md's output shape drops `description`, so output/jobs.json — what
+    the UI and the apply stage work from — has no posting text. Read it back
+    from the scrape rather than letting Claude recall what the posting said.
+    """
+    raw = Path("output/raw_jobs.json")
+    if not url or not raw.exists():
+        return ""
+    try:
+        jobs = json.loads(raw.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ""
+    match = next((j for j in jobs if _dedup_key(j.get("url", "")) == _dedup_key(url)), None)
+    return (match or {}).get("description", "")
+
+def set_application_status(url: str, status: str) -> None:
+    """Update a tracked application's status. No-op for jobs never drafted —
+    the tracker records applications, not every job that was ever scored."""
+    if not APPLICATIONS_CSV.exists():
+        return
+    with APPLICATIONS_CSV.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    if not any(r["source"] == url for r in rows):
+        return
+    for row in rows:
+        if row["source"] == url:
+            row["status"] = status
+    with APPLICATIONS_CSV.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+def apply_to_job(job: dict, on_progress=None) -> dict:
+    """Draft a cover letter, have a fresh-context reviewer critique it, and
+    apply the reviewer's edits.
+
+    The draft is passed to the reviewer inline — never re-read from disk — so
+    the review runs on exactly the text that was written.
+
+    Everything lands in output/applications/<slug>/, including the posting's
+    own text verbatim so a later reread never depends on memory.
+
+    Returns {slug, draft, revised, review, skipped_edits}.
+    """
+    def emit(label):
+        if on_progress:
+            on_progress(label)
+
+    slug = f"{_slug(job.get('company') or 'unknown')}__{_slug(job.get('title') or 'role')}"
+    out_dir = APPLICATIONS_DIR / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    job = {**job, "description": job.get("description") or _scraped_description(job.get("url", ""))}
+    job_json = json.dumps(job, indent=2)
+    (out_dir / "job_posting.md").write_text(
+        f"# {job.get('title', '')} — {job.get('company', '')}\n\n"
+        f"{job.get('url', '')}\n\n{job.get('description', '')}\n",
+        encoding="utf-8",
+    )
+
+    emit("Drafting")
+    draft = run_claude("prompts/apply_draft.md", context=job_json)
+    (out_dir / "cover_letter_draft.md").write_text(draft, encoding="utf-8")
+
+    emit("Reviewing")
+    review = run_claude_json(
+        "prompts/apply_review.md", context=f"{job_json}\n\n---DRAFT---\n{draft}"
+    )
+    (out_dir / "review.json").write_text(json.dumps(review, indent=2), encoding="utf-8")
+
+    emit("Revising")
+    revised, skipped = _apply_edits(draft, review.get("edits") or [])
+    (out_dir / "cover_letter.md").write_text(revised, encoding="utf-8")
+
+    cv_pdf = Path("output/cvs") / f"{slug}.pdf"
+    record_application(
+        job,
+        cover_letter_file=str(out_dir / "cover_letter.md"),
+        cv_file=str(cv_pdf) if cv_pdf.exists() else "",
+    )
+
+    return {"slug": slug, "draft": draft, "revised": revised,
+            "review": review, "skipped_edits": skipped}
 
 # ── pipeline orchestrator ──────────────────────────────────
 def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences: str = "") -> dict:
@@ -497,7 +691,12 @@ def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences:
 
     emit(4, "Generating cover letters", "running")
     good_jobs = [j for j in all_jobs if j.get("score", 0) >= THRESHOLD]
-    apply_jobs = [j for j in good_jobs if j.get("verdict") == "apply"]
+    # analyze.md's output shape drops `description`, so put the posting's own
+    # text back before anything writes copy that should be tailored to it.
+    apply_jobs = [
+        {**j, "description": j.get("description") or _scraped_description(j.get("url", ""))}
+        for j in good_jobs if j.get("verdict") == "apply"
+    ]
     if apply_jobs:
         generate_cover_letters(apply_jobs)
     emit(4, "Generating cover letters", "done")

@@ -36,7 +36,18 @@ resume.md
 output/jobs.json + output/cover_letters/*.md + output/cvs/*.pdf
 ```
 
-A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer, and a per-job CV download.
+Then, per job, on demand from the dashboard:
+
+```
+Apply  →  draft  →  a second Claude call reviews it with fresh context,
+                    flagging claims it can't find in your resume and
+                    scoring requirement coverage
+          ↓
+          the reviewer's edits are applied, and the application is
+          archived + tracked in output/applications.csv
+```
+
+A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer, a per-job CV download, and an Apply button that shows the draft and the reviewed version side by side.
 
 ## Dashboard
 
@@ -79,7 +90,7 @@ python server.py            # → http://127.0.0.1:8000
 python agent.py
 ```
 
-Results land in `output/` (gitignored): `jobs.json` (scored jobs), `raw_jobs.json` (everything scraped), `cover_letters/`, and `cvs/` (tailored `.typ` sources + compiled `.pdf`s).
+Results land in `output/` (gitignored): `jobs.json` (scored jobs), `raw_jobs.json` (everything scraped), `cover_letters/`, `cvs/` (tailored `.typ` sources + compiled `.pdf`s), `applications/<company>__<role>/` (archived posting, draft, review, final letter), and `applications.csv` (the tracker).
 
 CV generation needs [Typst](https://github.com/typst/typst) on your PATH; `pdftotext` (poppler) is optional and enables the ATS text-layer check. Without Typst the other four steps still run — step 5 just reports the failure per job.
 
