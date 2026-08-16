@@ -5,7 +5,7 @@
 
 ## Current Goal
 
-Everything on the 2026-08-16 design is built. Next: a real end-to-end run against the user's own `resume.md` and live Firecrawl results — every stage so far has been exercised against synthetic fixtures only.
+All five pipeline stages plus the apply stage have now run end to end on real scraped postings against the real resume (2026-08-16). Remaining work is quality, not completeness — see the TODOs.
 
 ---
 
@@ -17,7 +17,9 @@ Everything on the 2026-08-16 design is built. Next: a real end-to-end run agains
 
 ## Active TODOs
 
-- [ ] Run the whole pipeline end to end against the real `resume.md` + live Firecrawl/Exa results. Every stage has been verified against synthetic fixtures; none has been run on real scraped postings since the apply/CV work landed. *(added: 2026-08-16)*
+- [ ] LinkedIn still yields nothing usable — Firecrawl returns "Website Not Supported" and the Exa fallback then failed to parse on one of four attempts (`Expecting value: line 1 column 1`). Worth deciding whether to keep spending discovery slots on `linkedin.com/jobs` at all. *(found in the 2026-08-16 real run)*
+- [ ] Some scraped listing pages still yield thin descriptions (100 of 168 under 200 chars after the extract-prompt fix) — these are teaser cards on search/category pages, where the full text genuinely isn't on the page. Consider a second scrape pass on the individual posting URL for jobs that score near the threshold. *(added: 2026-08-16)*
+- [ ] `posted_date` comes back as free text ("11 months ago", "3 weeks ago", "2 years ago") and is passed to `analyze.md` as-is for the 30-day freshness rule. It works, but nothing normalizes or verifies it. *(added: 2026-08-16)*
 - [ ] Decide whether the apply stage should run in bulk during the pipeline instead of one job at a time from the UI — currently it's per-job and on demand, which is cheap but manual. *(added: 2026-08-16)*
 
 ---

@@ -613,21 +613,33 @@ def test_set_application_status_without_a_csv_is_a_noop(tmp_path, monkeypatch):
     assert not (tmp_path / "output" / "applications.csv").exists()
 
 
-def test_missing_keywords_reports_terms_absent_from_the_cv():
+def test_missing_keywords_reports_only_terms_the_resume_can_back_up(tmp_path, monkeypatch):
     import agent
-    job = {"title": "Airtable Specialist", "description": "Notion and Airtable required. QuickBooks a plus."}
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "resume.md").write_text("Skills: Notion, Airtable, QuickBooks")
+    job = {"title": "Airtable Specialist",
+           "description": "Notion and Airtable required. QuickBooks a plus. Kubernetes a bonus."}
 
     missing = agent._missing_keywords(job, "I use Notion daily and manage invoices.")
 
     assert "airtable" in missing
     assert "quickbooks" in missing
-    assert "notion" not in missing
+    assert "notion" not in missing        # already on the CV
+    assert "kubernetes" not in missing    # a real gap — must not be suggested
 
 
-def test_missing_keywords_ignores_filler_words():
+def test_missing_keywords_ignores_filler_words(tmp_path, monkeypatch):
     import agent
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "resume.md").write_text("I have experience with the team")
     missing = agent._missing_keywords({"title": "", "description": "You must have experience with the team"}, "")
     assert missing == []
+
+
+def test_missing_keywords_is_skipped_without_a_resume(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    assert agent._missing_keywords({"title": "Airtable", "description": "Airtable"}, "") == []
 
 
 def test_generate_cvs_retries_once_when_over_one_page(tmp_path, monkeypatch):

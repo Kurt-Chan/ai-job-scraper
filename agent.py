@@ -55,8 +55,15 @@ EXTRACT_PROMPT = (
     "Extract every individual job posting on this page. For each posting capture "
     "the job title, the hiring company, the location, the direct URL to that "
     "specific posting (not this listing/search page), the date it was posted, and "
-    "a short description. If the page is already a single job posting, return just "
-    "that one. Ignore navigation links, ads, related searches, and other pages."
+    "the description. For the description, copy the posting's own text — "
+    "responsibilities, requirements, tools and technologies named, seniority, "
+    "location/eligibility rules, and pay if stated. Do not summarize it into a "
+    "sentence: a one-line blurb is not enough to score a candidate against, so "
+    "reproduce the posting's wording and keep every concrete requirement. If a "
+    "listing page shows only a teaser for a posting, capture that teaser as-is "
+    "rather than inventing detail. If the page is already a single job posting, "
+    "return just that one. Ignore navigation links, ads, related searches, and "
+    "other pages."
 )
 JOB_EXTRACT_SCHEMA = {
     "type": "object",
@@ -423,12 +430,17 @@ using used use across into over about than then them they he she his her all any
 """.split())
 
 def _missing_keywords(job: dict, cv_text: str) -> list[str]:
-    """Notable terms from the posting that never appear in the CV's text layer.
+    """Terms the posting asks for, the resume can back up, and the CV left out.
 
-    Deliberately dumb: it flags terms for a human to judge, it doesn't decide
-    whether a gap is real. A term the candidate genuinely lacks *should* stay
-    missing — the prompt is told never to claim a skill the resume lacks.
+    Only that intersection is worth reporting. A posting term the resume can't
+    support is a real gap and must stay off the CV; a term the CV already uses
+    is fine. Flagging everything absent buries the few actionable terms under
+    the posting's boilerplate ("paid", "background", "knowledge").
     """
+    resume = Path(RESUME_FILE)
+    if not resume.exists():
+        return []
+    resume_text = resume.read_text(encoding="utf-8").lower()
     posting = f"{job.get('title', '')} {job.get('description', '')}".lower()
     cv_lower = cv_text.lower()
     seen, missing = set(), []
@@ -437,7 +449,7 @@ def _missing_keywords(job: dict, cv_text: str) -> list[str]:
         if term in _STOPWORDS or term in seen:
             continue
         seen.add(term)
-        if term not in cv_lower:
+        if term in resume_text and term not in cv_lower:
             missing.append(term)
     return missing
 
@@ -459,8 +471,8 @@ def _verify_cv(pdf_path: Path, job: dict | None = None) -> list[str]:
         missing = _missing_keywords(job, text)
         if missing:
             warnings.append(
-                f"{len(missing)} posting term(s) absent from the CV — real gaps are fine, "
-                f"but check for ones the resume could honestly cover: {', '.join(missing[:12])}"
+                f"{len(missing)} term(s) the posting asks for and your resume supports, but "
+                f"the CV left out: {', '.join(missing[:12])}"
             )
     return warnings
 
