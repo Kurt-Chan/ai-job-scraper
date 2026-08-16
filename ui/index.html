@@ -99,6 +99,11 @@
           <span id="s4-icon" class="text-gray-600">○</span>
           <span id="s4-label" class="text-sm text-gray-500">Cover Letters</span>
         </div>
+        <span class="text-gray-700">→</span>
+        <div class="flex items-center gap-1.5">
+          <span id="s5-icon" class="text-gray-600">○</span>
+          <span id="s5-label" class="text-sm text-gray-500">CVs</span>
+        </div>
       </div>
       <canvas id="game-canvas" height="140" class="w-full mt-3 rounded-lg bg-gray-950 border border-gray-800"></canvas>
       <p class="text-xs text-gray-600 mt-1 text-center">Dodge the red flags while your agent searches — Space or tap to jump</p>
@@ -479,7 +484,7 @@
       prog.classList.remove('hidden');
       summary.classList.add('hidden');
       errBan.classList.add('hidden');
-      for (let i = 1; i <= 4; i++) setStep(i, 'pending');
+      for (let i = 1; i <= 5; i++) setStep(i, 'pending');
       startGame();
 
       const params = new URLSearchParams();
@@ -499,7 +504,7 @@
         }
         if (ev.step === 'error') {
           es.close(); reset(btn, prog);
-          for (let i = 1; i <= 4; i++) {
+          for (let i = 1; i <= 5; i++) {
             if (document.getElementById(`s${i}-icon`).textContent === '↻') setStep(i, 'error');
           }
           showError(`Pipeline error: ${ev.message}`);
@@ -610,6 +615,11 @@
               class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
               Cover Letter
             </button>
+            <a href="/api/cv?company=${encodeURIComponent(job.company ?? '')}&title=${encodeURIComponent(job.title ?? '')}"
+               target="_blank" rel="noopener noreferrer"
+               class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">
+              CV ↗
+            </a>
           </div>
           <button onclick="toggleStatus('${esc(job.url ?? '')}','${esc(job.status ?? 'none')}')"
             class="w-full text-sm px-3 py-1.5 rounded-lg transition mt-2 ${statusCls(job.status)}">

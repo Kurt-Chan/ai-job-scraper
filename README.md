@@ -29,10 +29,14 @@ resume.md
 4. Cover letters         For each "apply" verdict, Claude drafts a short
    │                     cover letter using a suggested angle per job
    ▼
-output/jobs.json + output/cover_letters/*.md
+5. Tailored CVs          For the same jobs, Claude writes a Typst CV aimed at
+   │                     that posting, compiles it to PDF, and checks the
+   │                     text layer an ATS would read
+   ▼
+output/jobs.json + output/cover_letters/*.md + output/cvs/*.pdf
 ```
 
-A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer.
+A FastAPI server (`server.py`) exposes the pipeline and results, and `ui/index.html` is a single-file dashboard with a step-based flow, live progress (Server-Sent Events), score/verdict filtering, applied/skipped tracking, and a cover-letter viewer, and a per-job CV download.
 
 ## Dashboard
 
@@ -75,7 +79,9 @@ python server.py            # → http://127.0.0.1:8000
 python agent.py
 ```
 
-Results land in `output/` (gitignored): `jobs.json` (scored jobs), `raw_jobs.json` (everything scraped), and `cover_letters/`.
+Results land in `output/` (gitignored): `jobs.json` (scored jobs), `raw_jobs.json` (everything scraped), `cover_letters/`, and `cvs/` (tailored `.typ` sources + compiled `.pdf`s).
+
+CV generation needs [Typst](https://github.com/typst/typst) on your PATH; `pdftotext` (poppler) is optional and enables the ATS text-layer check. Without Typst the other four steps still run — step 5 just reports the failure per job.
 
 ## Tests
 

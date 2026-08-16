@@ -21,9 +21,10 @@
 │   ├── analyze_resume.md     # step 0: resume.md → {target_roles, key_skills}
 │   ├── build_queries.md      # step 1: selected roles/skills/preferences → {search_queries}
 │   ├── analyze.md             # step 3: raw_jobs.json + resume.md + preferences → scored jobs.json
-│   └── cover_letter.md         # step 4: one job JSON → plain-text cover letter
+│   ├── cover_letter.md         # step 4: one job JSON → plain-text cover letter
+│   └── cv.md                   # step 5: one job JSON + resume.md + template → Typst CV source
 ├── templates/
-│   └── cv.typ                 # Typst CV template (not yet wired into the pipeline)
+│   └── cv.typ                 # Typst CV template — styling reference for prompts/cv.md
 ├── ui/
 │   └── index.html               # single-file dashboard (vanilla JS + Tailwind CDN, no build step)
 ├── test_pipeline.py             # unit tests for agent.py (Claude/Firecrawl/Exa mocked)
@@ -33,15 +34,16 @@
     ├── raw_jobs.json
     ├── jobs.json
     ├── status.json               # url → applied/skipped map
-    └── cover_letters/*.md
+    ├── cover_letters/*.md
+    └── cvs/*.typ + *.pdf
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `agent.py` | All pipeline logic: config loading, URL dedup/canonicalization, Firecrawl search+scrape with Exa fallback (`_extract_via_exa`, `_normalize_postings`), Claude subprocess runner (`run_claude` — wraps `OSError` into `RuntimeError`), JSON parsing with fence-stripping, `analyze_resume()`/`build_search_config()` (role selection split from query building), cover letter generation, `run_pipeline()` orchestrator used by both CLI and server |
-| `server.py` | Thin FastAPI wrapper around `agent.py` — serves the UI, exposes job/status/cover-letter/resume-role data, streams pipeline progress via SSE using a background thread + queue |
-| `ui/index.html` | Entire frontend in one file: step-based flow (setup → running → results), role/preference chip pickers, job list with score/verdict filtering + list/grid view, applied/skipped toggle, cover letter modal, waiting mini-game |
-| `templates/cv.typ` | Typst CV layout — sample content, real styling. Compile with `typst compile templates/cv.typ`. Nothing generates it yet; it's the starting point for the planned per-job CV generation. Spacing rules that matter are documented in `history.md` (inline `line()` and tight-list gotchas) |
+| `agent.py` | All pipeline logic: config loading, URL dedup/canonicalization, Firecrawl search+scrape with Exa fallback (`_extract_via_exa`, `_normalize_postings`), Claude subprocess runner (`run_claude` — wraps `OSError` into `RuntimeError`), JSON parsing with fence-stripping, `analyze_resume()`/`build_search_config()` (role selection split from query building), cover letter generation, CV generation + Typst compile + ATS text-layer check (`generate_cvs`/`_compile_cv`/`_verify_cv`), `run_pipeline()` orchestrator used by both CLI and server |
+| `server.py` | Thin FastAPI wrapper around `agent.py` — serves the UI, exposes job/status/cover-letter/CV-PDF/resume-role data, streams pipeline progress via SSE using a background thread + queue |
+| `ui/index.html` | Entire frontend in one file: step-based flow (setup → running → results), role/preference chip pickers, job list with score/verdict filtering + list/grid view, applied/skipped toggle, cover letter modal, CV download link, waiting mini-game |
+| `templates/cv.typ` | Typst CV layout — sample content, real styling; read by `prompts/cv.md` as the style reference for every generated CV. Compile standalone with `typst compile templates/cv.typ`. Spacing rules that matter are documented in `history.md` (inline `line()` and tight-list gotchas) |
 | `config.json` | User-editable search source list, same shape as `DEFAULT_CONFIG` in `agent.py`, merged via `load_config()` |

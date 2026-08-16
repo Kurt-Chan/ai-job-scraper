@@ -52,14 +52,11 @@ Designed payment systems processing USD 2M+ monthly across 3 regions.
 - Built REST APIs in Python/Django; introduced automated testing, 80% coverage
 
 = Skills
-#grid(
-  columns: (auto, 1fr),
-  column-gutter: 12pt,
-  row-gutter: 4pt,
-  [*Languages:*], [Python, Go, TypeScript],
-  [*Data:*], [PostgreSQL, Redis, Kafka, ClickHouse],
-  [*Cloud:*], [AWS, Docker, Kubernetes, Terraform],
-)
+// One line per category, not a grid — a grid extracts column-by-column in the
+// PDF text layer, so an ATS reads every label first and then every value.
+*Languages:* #h(4pt) Python, Go, TypeScript \
+*Data:* #h(4pt) PostgreSQL, Redis, Kafka, ClickHouse \
+*Cloud:* #h(4pt) AWS, Docker, Kubernetes, Terraform
 
 = Education
 *B.Sc. Computer Science* — Cairo University, 2012--2016

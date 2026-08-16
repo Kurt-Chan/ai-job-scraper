@@ -141,3 +141,15 @@ def test_run_uses_auto_detected_roles_when_none_given(client, monkeypatch):
 
     assert res.status_code == 200
     assert captured["resume_info"] is None
+
+
+def test_cv_found(client, tmp_path):
+    (tmp_path / "output" / "cvs").mkdir()
+    (tmp_path / "output" / "cvs" / "tech-co__backend-engineer.pdf").write_bytes(b"%PDF-1.7")
+    res = client.get("/api/cv?company=Tech+Co&title=Backend+Engineer")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+
+
+def test_cv_not_found(client):
+    assert client.get("/api/cv?company=Nobody&title=Nothing").status_code == 404

@@ -1,6 +1,6 @@
 # Features & Workflows
 
-> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-07-21
+> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-08-16
 
 ## Features
 
@@ -10,6 +10,7 @@
 - **Discover + scrape pipeline** — search results are deduped by canonical URL (regional/`www.` subdomains collapsed), interleaved round-robin across queries, then each candidate page is scraped: Firecrawl first, Exa as a fallback for pages Firecrawl can't reach (LinkedIn, Reddit), then the search snippet as a last resort.
 - **AI scoring** — every scraped posting scored 0–100 against the resume and any run preferences (skills, seniority, remote signals, freshness, red flags, location/pay/employment-type fit); only score ≥ 60 kept, verdict `apply | review | skip`.
 - **Auto cover letters** — for every `apply`-verdict job at/above `THRESHOLD` (70), Claude drafts a 1–2 paragraph plain-text cover letter using a suggested framing angle.
+- **Tailored CVs (Typst → PDF → ATS check)** — for the same `apply`-verdict jobs that get a cover letter, Claude writes a full Typst CV aimed at that posting, using `resume.md` for content and `templates/cv.typ` for styling. `agent.py` writes `output/cvs/<slug>.typ`, compiles it with the `typst` binary, then runs `pdftotext` on the result and warns if the text layer is nearly empty, has no email, or spills past one page. The prompt forbids inventing anything not in the resume — tailoring is selection and phrasing only. Downloadable from each job card via `GET /api/cv`.
 - **Step-based dashboard flow** — the UI now shows exactly one "step" at a time instead of stacking panels on the page: Setup (role/preference chips, results hidden) → Running (progress + mini-game, results hidden) → Results (setup/progress hidden). A "Cancel" button in Setup backs out to Results without running anything.
 - **Waiting mini-game** — while the pipeline runs, a canvas-based "dodge the red flags" game (🤖 jumps over 🚩, Space or tap) is shown below the step progress, with a `localStorage`-persisted high score. Purely cosmetic/entertainment — starts on run, stops and tears down its listeners/`requestAnimationFrame` loop on completion, error, or busy.
 - **List/Grid view toggle** — job results can be viewed as a single-column list or a responsive card grid (1/2/3 columns); each card is a flex column with the action-button row pinned to the bottom (`mt-auto`) so buttons line up across a row regardless of how much match-reason/red-flag text a job has. Mode persists in `localStorage`.
@@ -29,6 +30,7 @@
 6. Step 2: `scrape_jobs()` searches + scrapes (Firecrawl → Exa fallback → snippet), writes `output/raw_jobs.json` — `agent.py`
 7. Step 3: `analyze_jobs(preferences)` scores against resume + preferences, writes `output/jobs.json` — `agent.py`
 8. Step 4: `generate_cover_letters()` writes one `.md` per apply-verdict job — `agent.py`
+8b. Step 5: `generate_cvs()` writes + compiles + verifies one CV PDF per apply-verdict job — `agent.py`
 9. On SSE `complete`/`error`/`busy`, `reset()` hides progress, stops the game, and re-shows `#results-section`; `complete` also calls `loadJobs()` → `GET /api/jobs` — `ui/index.html`
 
 **Marking a job applied/skipped**

@@ -386,9 +386,69 @@ def generate_cover_letters(jobs: list[dict]):
         except Exception as e:
             print(f"  Failed for {slug}: {e}")
 
+# ── CVs ───────────────────────────────────────────────────
+def _compile_cv(typ_path: Path) -> Path:
+    """Compile a Typst CV to PDF next to its source. Raises RuntimeError if
+    typst is missing or the source doesn't compile."""
+    typst_exe = shutil.which("typst")
+    if not typst_exe:
+        raise RuntimeError("typst not found on PATH — install it to generate CV PDFs.")
+    pdf_path = typ_path.with_suffix(".pdf")
+    result = subprocess.run(
+        [typst_exe, "compile", str(typ_path), str(pdf_path)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"typst compile failed: {result.stderr.strip()[:300]}")
+    return pdf_path
+
+def _verify_cv(pdf_path: Path) -> list[str]:
+    """Check the compiled PDF's ATS text layer. Returns a list of warnings —
+    empty means it passed. Skipped silently if pdftotext isn't installed."""
+    if not shutil.which("pdftotext"):
+        return []
+    result = subprocess.run(
+        ["pdftotext", str(pdf_path), "-"], capture_output=True, text=True, encoding="utf-8"
+    )
+    if result.returncode != 0:
+        return ["pdftotext could not read the PDF — the text layer may be broken"]
+    text = result.stdout
+    warnings = []
+    if len(text.split()) < 50:
+        warnings.append("text layer is nearly empty — an ATS would see a blank CV")
+    if "@" not in text:
+        warnings.append("no email address in the text layer")
+    if text.count("\f") > 1:
+        warnings.append(f"CV is {text.count(chr(12))} pages — should be one")
+    return warnings
+
+def generate_cvs(jobs: list[dict]):
+    """Write, compile and verify a tailored CV per job."""
+    out_dir = Path("output/cvs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for job in jobs:
+        company = job.get("company") or "unknown"
+        title = job.get("title") or "role"
+        slug = f"{_slug(company)}__{_slug(title)}"
+
+        print(f"  Writing CV: {company} — {title[:50]}...")
+        try:
+            source = run_claude("prompts/cv.md", context=json.dumps(job, indent=2))
+            if source.startswith("```"):
+                source = re.sub(r"^```[a-zA-Z]*\s*\n", "", source)
+                source = re.sub(r"\n```\s*$", "", source)
+            typ_path = out_dir / f"{slug}.typ"
+            typ_path.write_text(source, encoding="utf-8")
+            pdf_path = _compile_cv(typ_path)
+            for warning in _verify_cv(pdf_path):
+                print(f"    ATS warning: {warning}")
+        except Exception as e:
+            print(f"  Failed for {slug}: {e}")
+
 # ── pipeline orchestrator ──────────────────────────────────
 def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences: str = "") -> dict:
-    """Run the full 4-step pipeline.
+    """Run the full 5-step pipeline.
 
     resume_info, if given, is {"target_roles": [...], "key_skills": [...]} —
     typically the (possibly user-edited) result of a prior analyze_resume()
@@ -399,7 +459,7 @@ def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences:
     employment type) folded into both the search queries and the scoring.
 
     Calls on_progress(step, label, status) at each stage where:
-      step   — int 1-4
+      step   — int 1-5
       label  — human-readable step name
       status — "running" or "done"
 
@@ -441,6 +501,11 @@ def run_pipeline(on_progress=None, resume_info: dict | None = None, preferences:
     if apply_jobs:
         generate_cover_letters(apply_jobs)
     emit(4, "Generating cover letters", "done")
+
+    emit(5, "Generating CVs", "running")
+    if apply_jobs:
+        generate_cvs(apply_jobs)
+    emit(5, "Generating CVs", "done")
 
     return {"total": len(all_jobs), "above_threshold": len(good_jobs)}
 

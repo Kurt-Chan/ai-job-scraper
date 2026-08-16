@@ -13,6 +13,7 @@ app = FastAPI()
 STATUS_FILE = Path("output/status.json")
 JOBS_FILE = Path("output/jobs.json")
 COVER_LETTERS_DIR = Path("output/cover_letters")
+CVS_DIR = Path("output/cvs")
 
 run_lock = threading.Lock()
 
@@ -70,6 +71,15 @@ async def get_cover_letter(company: str = Query(...), title: str = Query(...)):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Cover letter not found")
     return {"content": path.read_text(encoding="utf-8")}
+
+
+@app.get("/api/cv")
+async def get_cv(company: str = Query(...), title: str = Query(...)):
+    from agent import _slug
+    path = CVS_DIR / f"{_slug(company)}__{_slug(title)}.pdf"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="CV not found")
+    return FileResponse(path, media_type="application/pdf")
 
 
 @app.get("/api/resume-roles")

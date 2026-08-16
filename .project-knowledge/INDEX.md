@@ -3,10 +3,10 @@
 > Last updated: 2026-08-16
 > Status: Active
 > Stack: Python + FastAPI + Firecrawl + Exa (fallback) + Claude Code CLI (subprocess) + vanilla JS/Tailwind + Typst (CV rendering)
-> Current goal: Implement the drafter-reviewer apply stage + per-job CV generation (PDF compile + ATS verification) designed on 2026-08-16 — see roadmap.md
+> Current goal: Implement the drafter-reviewer apply stage — see roadmap.md (per-job CV generation shipped 2026-08-16)
 
 ## What This Project Does
-An autonomous, profession-agnostic job-hunting pipeline. It reads a user-supplied `resume.md`, derives search queries with Claude, discovers and scrapes remote job postings via Firecrawl, scores each against the resume, and drafts cover letters for the best matches — all reviewable in a local single-file web dashboard.
+An autonomous, profession-agnostic job-hunting pipeline. It reads a user-supplied `resume.md`, derives search queries with Claude, discovers and scrapes remote job postings via Firecrawl, scores each against the resume, and drafts cover letters plus tailored Typst/PDF CVs for the best matches — all reviewable in a local single-file web dashboard.
 
 ---
 

@@ -76,7 +76,8 @@ def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
          patch.object(agent, "build_search_config", return_value=mock_config), \
          patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs), \
          patch.object(agent, "analyze_jobs", return_value=mock_analyzed), \
-         patch.object(agent, "generate_cover_letters"):
+         patch.object(agent, "generate_cover_letters"), \
+         patch.object(agent, "generate_cvs"):
         result = agent.run_pipeline(on_progress=lambda s, l, st: events.append((s, st)))
 
     step_statuses = {(s, st) for s, st in events}
@@ -88,6 +89,8 @@ def test_run_pipeline_emits_all_step_events(tmp_path, monkeypatch):
     assert (3, "done") in step_statuses
     assert (4, "running") in step_statuses
     assert (4, "done") in step_statuses
+    assert (5, "running") in step_statuses
+    assert (5, "done") in step_statuses
     assert result == {"total": 1, "above_threshold": 1}
 
 
@@ -117,7 +120,8 @@ def test_run_pipeline_works_without_callback(tmp_path, monkeypatch):
          patch.object(agent, "build_search_config", return_value=mock_config), \
          patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs), \
          patch.object(agent, "analyze_jobs", return_value=mock_analyzed), \
-         patch.object(agent, "generate_cover_letters"):
+         patch.object(agent, "generate_cover_letters"), \
+         patch.object(agent, "generate_cvs"):
         result = agent.run_pipeline()
 
     assert result["total"] == 1
@@ -201,7 +205,8 @@ def test_run_pipeline_uses_given_resume_info_and_skips_analyze_resume(tmp_path, 
          patch.object(agent, "build_search_config", side_effect=fake_build_search_config), \
          patch.object(agent, "scrape_jobs", return_value=mock_raw_jobs), \
          patch.object(agent, "analyze_jobs", return_value=mock_analyzed), \
-         patch.object(agent, "generate_cover_letters"):
+         patch.object(agent, "generate_cover_letters"), \
+         patch.object(agent, "generate_cvs"):
         agent.run_pipeline(resume_info=resume_info, preferences="Egypt, USD, part-time")
 
     assert captured == {"roles": ["Frontend Developer"], "skills": ["React"], "preferences": "Egypt, USD, part-time"}
@@ -400,3 +405,75 @@ def test_analyze_jobs_includes_preferences_in_context(tmp_path, monkeypatch):
         agent.analyze_jobs(preferences="Egypt, USD, part-time")
 
     assert "Egypt, USD, part-time" in captured["context"]
+
+
+def test_generate_cvs_writes_source_and_compiles(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+    job = {"company": "Tech Co", "title": "Backend Engineer"}
+
+    compiled = []
+    with patch.object(agent, "run_claude", return_value="#set page()\n= CV"), \
+         patch.object(agent, "_compile_cv", side_effect=lambda p: compiled.append(p) or p), \
+         patch.object(agent, "_verify_cv", return_value=[]):
+        agent.generate_cvs([job])
+
+    source = (tmp_path / "output" / "cvs" / "tech-co__backend-engineer.typ").read_text()
+    assert source == "#set page()\n= CV"
+    assert compiled == [Path("output/cvs/tech-co__backend-engineer.typ")]
+
+
+def test_generate_cvs_strips_markdown_fences(tmp_path, monkeypatch):
+    import agent
+    monkeypatch.chdir(tmp_path)
+
+    with patch.object(agent, "run_claude", return_value="```typst\n#set page()\n```"), \
+         patch.object(agent, "_compile_cv"), patch.object(agent, "_verify_cv", return_value=[]):
+        agent.generate_cvs([{"company": "Co", "title": "Dev"}])
+
+    assert (tmp_path / "output" / "cvs" / "co__dev.typ").read_text() == "#set page()"
+
+
+def test_generate_cvs_survives_a_failing_job(tmp_path, monkeypatch, capsys):
+    import agent
+    monkeypatch.chdir(tmp_path)
+
+    with patch.object(agent, "run_claude", return_value="#set page()"), \
+         patch.object(agent, "_compile_cv", side_effect=RuntimeError("typst compile failed")), \
+         patch.object(agent, "_verify_cv", return_value=[]):
+        agent.generate_cvs([{"company": "Co", "title": "Dev"}])
+
+    assert "typst compile failed" in capsys.readouterr().out
+
+
+def test_verify_cv_flags_missing_email_and_extra_pages(tmp_path, monkeypatch):
+    import agent
+    pdf = tmp_path / "cv.pdf"
+    pdf.write_bytes(b"%PDF")
+    text = " ".join(["word"] * 60) + "\f" + "second page\f"
+
+    with patch.object(agent.shutil, "which", return_value="/usr/bin/pdftotext"), \
+         patch.object(agent.subprocess, "run",
+                      return_value=SimpleNamespace(returncode=0, stdout=text)):
+        warnings = agent._verify_cv(pdf)
+
+    assert any("email" in w for w in warnings)
+    assert any("pages" in w for w in warnings)
+
+
+def test_verify_cv_passes_a_clean_one_pager(tmp_path):
+    import agent
+    pdf = tmp_path / "cv.pdf"
+    pdf.write_bytes(b"%PDF")
+    text = "me@example.com " + " ".join(["word"] * 60)
+
+    with patch.object(agent.shutil, "which", return_value="/usr/bin/pdftotext"), \
+         patch.object(agent.subprocess, "run",
+                      return_value=SimpleNamespace(returncode=0, stdout=text)):
+        assert agent._verify_cv(pdf) == []
+
+
+def test_verify_cv_skipped_when_pdftotext_missing(tmp_path):
+    import agent
+    with patch.object(agent.shutil, "which", return_value=None):
+        assert agent._verify_cv(tmp_path / "cv.pdf") == []
