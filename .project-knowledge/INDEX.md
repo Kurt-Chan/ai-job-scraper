@@ -2,7 +2,7 @@
 
 > Last updated: 2026-08-16
 > Status: Active
-> Stack: Python + FastAPI + Firecrawl + Exa (fallback) + Claude Code CLI (subprocess) + vanilla JS/Tailwind
+> Stack: Python + FastAPI + Firecrawl + Exa (fallback) + Claude Code CLI (subprocess) + vanilla JS/Tailwind + Typst (CV rendering)
 > Current goal: Implement the drafter-reviewer apply stage + per-job CV generation (PDF compile + ATS verification) designed on 2026-08-16 — see roadmap.md
 
 ## What This Project Does
