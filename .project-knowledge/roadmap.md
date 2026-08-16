@@ -1,11 +1,11 @@
 # Roadmap
 
-> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-07-21
+> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-08-16
 > Forward-looking only. Check this before starting any task — know what's in flight.
 
 ## Current Goal
 
-Verify the job-board/scoring location fix (see history.md) with a fresh real run, then push. Previously pushed commits (b49b673, 5a0abb5) predate this fix.
+Implement the drafter-reviewer apply stage + per-job CV generation (with PDF compile + ATS verification) designed on 2026-08-16. The apply flow design is sketched; nothing is built yet.
 
 ---
 
@@ -17,10 +17,13 @@ Verify the job-board/scoring location fix (see history.md) with a fresh real run
 
 ## Active TODOs
 
-_None recorded yet._
+- [ ] Pick Typst vs LaTeX for the CV template (user comparing the two rendered CVs from the 2026-08-16 test-drive; Typst recommended). Demo files in `/tmp/opencode/cv-demo/`. *(added: 2026-08-16)*
 
 ---
 
 ## Planned Features
 
-_None recorded yet._
+- [ ] **Drafter-reviewer apply stage** — per-job flow on high-scoring `apply`-verdict jobs. Three new prompt files (`prompts/apply_draft.md`, `apply_review.md`, `apply_revise.md`) mirroring the strict raw-JSON contract. Draft via one `claude -p` subprocess, critique via a second fresh-context subprocess, revise via a third; drafts passed **inline** (never re-read) to save tokens. Reviewer returns structured edits `{old_string, new_string, reason}` the revise step applies mechanically. Includes a **factual grounding audit** (every claim traced to a `resume.md` line) and a **requirement-coverage check** (matched / gapped / bridged — honest gaps acknowledged, never stuffed). Wired as a new `POST /api/apply` SSE endpoint + Apply button on job cards with side-by-side initial-vs-revised viewer. *(designed: 2026-08-16)*
+- [ ] **CV generation + PDF compile + ATS verification** — generate a per-job tailored CV from `resume.md` (Typst or LaTeX, pending TODO above), compile, inspect the rendered PDF (page count, orphans, layout), then `pdftotext` ATS checks: email/phone as literal text, sane reading order, and a keyword-coverage table (covered / synonym-only / missing-have-it / missing-gap — never stuffed). Relevance-weighted cutting when a CV overflows the page limit. *(designed: 2026-08-16)*
+- [ ] **Application tracker + posting archive** — `output/applications.csv` (`date, company, role, status, fit_score, cv_file, cover_letter_file, source`) replacing/augmenting the applied/skipped-only `output/status.json`, plus verbatim posting text archived to `output/applications/<company>_<role>/job_posting.md` (never reconstructed from memory). *(designed: 2026-08-16)*
+- [ ] **Language gate** in `prompts/analyze.md` — a posting requiring a language absent from the resume hard-fails; a posting requiring a higher level than declared gets flagged (not silently dropped). *(designed: 2026-08-16)*

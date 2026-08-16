@@ -103,3 +103,7 @@ I built this while job hunting as a broke developer — it runs on a Claude Code
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kurtdeaustria)
 
 Stars, issues, and PRs are just as appreciated. ☕
+
+---
+
+> Part of this repo's living knowledge — a `.project-knowledge/` folder tracks the stack, architecture, schema, features, roadmap, and session history. It's kept in sync as the project evolves, so the docs never go stale. 🧠

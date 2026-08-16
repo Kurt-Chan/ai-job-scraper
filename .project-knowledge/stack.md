@@ -1,6 +1,6 @@
 # Stack
 
-> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-07-21
+> Part of ai-job-scraper-clean/.project-knowledge/ | Last updated: 2026-08-16
 
 ## Tech Stack
 
@@ -34,6 +34,17 @@
 |----------|---------|----------------|
 | `FIRECRAWL_API_KEY` | `agent.py` (`scrape_jobs`) | Firecrawl search + scrape calls |
 | `EXA_API_KEY` | `agent.py` (`scrape_jobs`, `_extract_via_exa`) | Optional. Fallback structured extraction for pages Firecrawl can't scrape (LinkedIn, Reddit respond "Website Not Supported"). Pipeline works without it — falls straight to the search snippet instead |
+
+## CV Toolchain (planned — for the apply stage, added 2026-08-16)
+
+| Tool | Where | Purpose |
+|------|-------|---------|
+| `typst` (v0.15.1) | `~/.local/bin/typst` | Preferred CV compiler (decision pending user's render comparison — see roadmap) — single binary, ~0.27 s compiles, deterministic, clean ATS text layer |
+| Portable TinyTeX (LaTeX) | `~/.TinyTeX/bin/x86_64-linux/lualatex` | Fallback CV compiler — needs `tlmgr` package installs (`fontawesome5`, `luatexbase`), ~0.8 s compiles, icon glyphs leak as noise into the ATS text layer |
+| Font Awesome 5 OTFs | `~/.local/share/fonts` | Section icons in the CV (referenced by codepoint via `str.from-unicode()`, no built-in `icon()` in Typst 0.15) |
+| `pdftotext` (poppler-utils) | PATH | ATS text-layer verification of compiled CVs (email/phone literal, reading order, keyword coverage) |
+
+Demo CVs from the test-drive: `/tmp/opencode/cv-demo/`.
 
 ## External Prerequisites (not env vars)
 

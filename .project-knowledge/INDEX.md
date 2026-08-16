@@ -1,9 +1,9 @@
 # AI Job Hunt Agent — Knowledge Index
 
-> Last updated: 2026-07-21
+> Last updated: 2026-08-16
 > Status: Active
 > Stack: Python + FastAPI + Firecrawl + Exa (fallback) + Claude Code CLI (subprocess) + vanilla JS/Tailwind
-> Current goal: Push current state to https://github.com/YahyaZekry/ai-job-scraper (branch `clean`)
+> Current goal: Implement the drafter-reviewer apply stage + per-job CV generation (PDF compile + ATS verification) designed on 2026-08-16 — see roadmap.md
 
 ## What This Project Does
 An autonomous, profession-agnostic job-hunting pipeline. It reads a user-supplied `resume.md`, derives search queries with Claude, discovers and scrapes remote job postings via Firecrawl, scores each against the resume, and drafts cover letters for the best matches — all reviewable in a local single-file web dashboard.
